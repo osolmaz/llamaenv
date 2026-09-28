@@ -1,6 +1,18 @@
 # AGENTS.md - llamaenv
 
-- Status: planning. Do not implement until the plan in `docs/` is approved.
+- Status: first implementation. Follow the plan in `docs/`, and update it when a decision changes.
+- Before finishing a change, run these, as CI does:
+  ```sh
+  gofmt -l .                      # must print nothing
+  go vet ./... && GOOS=windows go vet ./...
+  go test ./...
+  golangci-lint run ./... && GOOS=windows golangci-lint run ./...
+  ./scripts/check-go-coverage.sh  # at least 85%
+  slophammer-go dry . && slophammer-go crap . && slophammer-go check .
+  ```
+- Keep the Slophammer standards in `slophammer.yml` and `.golangci.yml`. Do not weaken them. A `nolint` needs the rule and a reason, as `nolintlint` requires.
+- Tests: the fake llama routers and the fake official llama are the test binary itself (see `TestMain` in each package). Add a test for every behavior change.
+- Windows-only code lives in `*_windows.go` files. Keep a Linux version or a clear stub next to it.
 - llamaenv is work in progress and temporary. It may be deprecated or
   absorbed into llama.cpp. Do not build features that would make it harder to
   remove.

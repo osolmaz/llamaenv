@@ -82,20 +82,19 @@ Llama app (tray)
 - Only the official backend's host and port face the client. Backends listen
   on `127.0.0.1` only.
 
-### Router API for runtime backends
+### Runtimes run as routers
 
-The Llama app and the web page use the router's model API. A single
-`llama-server` of a runtime has no router API, so the switcher answers for it:
+The spike showed that Prism's `llama-server` has the same router API as
+upstream (`/models`, `/models/load`, `/models/unload`, `/models/sse`). So each
+runtime runs as a router too, over the same Hugging Face cache, and llamaenv
+does not imitate the router API. It only:
 
-- `GET /models`: the official list plus the mapped models, each with a status
-  (`loaded`, `unloaded`, `loading`, `failed`) that the switcher tracks.
-- `POST /models/load`: start the runtime backend, wait for its health, report
-  progress.
-- `POST /models/unload`: stop the runtime backend.
-- Idle unload: stop a runtime backend after the same idle time as the official
-  `--sleep-idle-seconds`.
-
-The exact endpoints and JSON shapes come from the spike (section 7).
+- routes each request to the router that owns its model;
+- merges `GET /models` and `GET /v1/models`: a mapped model is listed only by
+  its runtime's router, every other model only by the default router;
+- merges `GET /models/sse`: every event names its model, so the streams are
+  interleaved line by line, with the same ownership filter;
+- sends `GET /models?reload=1` to every router.
 
 ### Memory
 
@@ -127,8 +126,10 @@ The exact endpoints and JSON shapes come from the spike (section 7).
 
 Location:
 
-- Windows: `%LOCALAPPDATA%\llamaenv\`
-- Linux: `~/.config/llamaenv/`
+- Windows: `%LOCALAPPDATA%\llamaenv\` for config, programs, runtimes, and
+  logs.
+- Linux: `~/.config/llamaenv/` for config; `~/.local/share/llamaenv/` for
+  programs, runtimes, and logs.
 
 Files, all INI like llama.cpp presets:
 
@@ -160,8 +161,8 @@ on the Hub, then the shared list. The result is cached with its source for
 
 The files are read again when a model loads, so edits by hand need no restart.
 
-Runtimes and logs live under the same folder: `runtimes/<name>/<platform>/`
-and `logs/`.
+Programs, runtimes, and logs: `bin/`, `runtimes/<name>/`, and `logs/` in the
+data folder.
 
 ## 5. Runtimes
 
