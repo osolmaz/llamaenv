@@ -91,3 +91,15 @@ func TestRequestModel(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAPI(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/v1/chat/completions": true, "/models": true, "/models/sse": true, "/props": true,
+		"/completion": true, "/tokenize": true, "/": false, "/_app/immutable/x.js": false,
+		"/index.html": false, "/favicon.ico": false, "/v1": false, "/modelsx": false,
+	} {
+		if got := isAPI(path); got != want {
+			t.Errorf("%s: %v, want %v", path, got, want)
+		}
+	}
+}

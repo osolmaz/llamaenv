@@ -100,11 +100,17 @@ if (-not $p) { exit 2 }
 $procs = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($p.InstallLocation) }
 if (-not $procs) { exit 3 }
 $procs | Stop-Process -Force
-$pidFile = Join-Path $env:LOCALAPPDATA 'Llama\.llama.pid'
-if (Test-Path $pidFile) {
-  $serverPid = [int](Get-Content $pidFile -Raw).Trim()
-  $server = Get-Process -Id $serverPid -ErrorAction SilentlyContinue
-  if ($server -and $server.ProcessName -eq 'llama') { Stop-Process -Id $serverPid -Force }
+# The app is packaged, so Windows keeps its files under Packages\<family>.
+$pidFiles = @(
+  (Join-Path $env:LOCALAPPDATA ('Packages\' + $p.PackageFamilyName + '\LocalCache\Local\Llama\.llama.pid')),
+  (Join-Path $env:LOCALAPPDATA 'Llama\.llama.pid')
+)
+foreach ($pidFile in $pidFiles) {
+  if (Test-Path $pidFile) {
+    $serverPid = [int](Get-Content $pidFile -Raw).Trim()
+    $server = Get-Process -Id $serverPid -ErrorAction SilentlyContinue
+    if ($server -and $server.ProcessName -eq 'llama') { Stop-Process -Id $serverPid -Force }
+  }
 }
 Start-Sleep -Milliseconds 500
 Start-Process ('shell:AppsFolder\' + $p.PackageFamilyName + '!App')

@@ -53,6 +53,10 @@ func runFakeRouter(args []string) {
 	_, _ = fmt.Fprintln(os.Stderr, "router "+*name+" started")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"status":"ok"}`) })
+	// The web page and its files, named after the router that serves them.
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "page from "+f.name)
+	})
 	mux.HandleFunc("/models", f.list)
 	mux.HandleFunc("/v1/models", f.list)
 	mux.HandleFunc("/models/load", f.change("loaded"))
@@ -506,4 +510,16 @@ func TestAModelMappedToTheDefaultRuntimeUsesTheDefaultRouter(t *testing.T) {
 		o.Runtimes = map[string]Launch{}
 	})
 	h.wantChat(bonsai, "served by official")
+}
+
+// The Llama app opens "/?model=<id>". The page and its files must come from
+// the default router, whatever model the URL names.
+func TestTheWebPageComesFromTheDefaultRouter(t *testing.T) {
+	h := start(t, nil)
+	for _, path := range []string{"/?model=" + bonsai, "/", "/_app/immutable/bundle.js", "/favicon.ico"} {
+		code, body := h.request(http.MethodGet, path, "")
+		if code != http.StatusOK || !strings.HasSuffix(body, "from official") {
+			t.Errorf("%s: %d %q", path, code, body)
+		}
+	}
 }
