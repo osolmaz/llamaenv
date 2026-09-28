@@ -9,9 +9,8 @@ tags: [llamaswitch, llama-cpp, requirements]
 
 ## Problem
 
-Model developers often ship a custom inference build until their model's
-support is upstream: a llama.cpp fork, or a custom vLLM or SGLang image. Unified
-apps such as llama.app and the Llama apps, LM Studio, or Ollama have no
+Model developers often ship a custom llama.cpp build, usually a fork, until
+their model's support is upstream. llama.app and the Llama apps have no
 standard way for a model to say "run me with this build". So every launch comes
 with its own install instructions.
 
@@ -20,8 +19,6 @@ Checked on 2026-09-28:
 - The llama.cpp router starts every model's child process with its own
   executable (`bin_path` in `tools/server/server-models.cpp`). No preset key
   chooses another program.
-- LM Studio keeps several engine builds, but one is selected globally.
-- Ollama ships one engine; a Modelfile has no runtime field.
 - The nearest precedent is `trust_remote_code` in Transformers: a model repo
   brings its own code until support is upstream, with an explicit opt-in.
 
@@ -106,7 +103,6 @@ does not store the path, and skips a PATH entry whose file does not exist
 - Changes to llama.cpp or to the Llama apps.
 - Running two runtimes for one model at the same time.
 - Building runtimes. llamaswitch uses builds that a model developer publishes.
-- vLLM and SGLang. The same idea applies, but they are out of scope for now.
 
 ## Success criteria
 
