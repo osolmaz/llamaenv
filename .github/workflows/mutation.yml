@@ -1,0 +1,20 @@
+name: Mutation
+
+# Mutation testing is slow, so it runs weekly and on demand, not on every push.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+env:
+  SLOPHAMMER_VERSION: v0.5.0
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go run github.com/osolmaz/slophammer/go/cmd/slophammer-go@${SLOPHAMMER_VERSION} mutate .
