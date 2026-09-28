@@ -220,10 +220,11 @@ func (s *Switcher) owns(b *backend, model string) bool {
 	return b == s.def
 }
 
-// usesModel says whether a request loads or runs a model.
+// usesModel says whether a request loads or runs a model. A download
+// ("POST /models") needs no memory, so it leaves other models loaded.
 func usesModel(r *http.Request) bool {
 	switch r.URL.Path {
-	case "/models/unload", "/props", "/slots", "/metrics", "/health":
+	case "/models", "/models/unload", "/props", "/slots", "/metrics", "/health":
 		return false
 	}
 	return r.Method == http.MethodPost && !strings.HasPrefix(r.URL.Path, "/tokenize") && !strings.HasPrefix(r.URL.Path, "/detokenize")

@@ -36,7 +36,8 @@ Prism's router (`prism-b10687-5d80cff`, CUDA, Linux arm64).
 | `GET /models` | model list: `data[]` with `id`, `path`, `status.value`, `architecture`, `source`, `can_remove` |
 | `GET /models?reload=1` | reload the preset after a context change |
 | `DELETE /models?model=<id>` | delete a cached model |
-| `POST /models/load` | `{"model": id}`, optional `ctx_size`; downloads if needed, then loads |
+| `POST /models` | `{"model": id}`: download a model; progress as `download_progress`, then `download_finished` or `download_failed` events |
+| `POST /models/load` | `{"model": id}`, optional `ctx_size`; loads a cached model (404 when it is not cached) |
 | `POST /models/unload` | `{"model": id}` |
 | `GET /models/sse` | live events |
 | `POST /v1/chat/completions` | chat, streamed |
