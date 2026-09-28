@@ -80,21 +80,16 @@ environment variable `LLAMA_ARG_MODELS_PRESET` sets it too.
 - **Image encoder:** `--hf-repo` also loads the repository's multimodal
   projector when there is one.
 
-On Windows, a model that fills the VRAM this way slows down sharply, because
-the desktop also uses VRAM and Windows then pages GPU memory. Measured for
-Bonsai 2 27B PQ2_0 with Prism's CUDA build:
+Measured for Bonsai 2 27B PQ2_0 with Prism's CUDA build on Windows (RTX 3080
+Laptop, 16 GB), with no other model on the GPU: `ctx-size = 98304` and
+`parallel = 1` use 14,670 MiB and decode at 39.2 tok/s. The same speed as
+`llama-server -m ... -c 98304` in WSL.
 
-| Settings | GPU memory | Decode |
-| --- | --- | --- |
-| llama.cpp defaults (87K context, 4 slots) | 16,045 MiB of 16,384 | about 7 tok/s |
-| `ctx-size = 32768`, `parallel = 1` | 13,720 MiB | 39.7 tok/s |
-| `ctx-size = 98304`, `parallel = 1` | 15,997 MiB | 7.5 tok/s |
-| `ctx-size = 98304`, `parallel = 1`, `no-mmproj = true` | 15,973 MiB | 7.9 tok/s |
-| `ctx-size = 98304`, `parallel = 1`, `cache-type-k`/`cache-type-v = q8_0` | 14,693 MiB | 39.3 tok/s |
-
-What matters is whether everything fits next to the desktop's 3 to 4 GB. The
-image encoder is small; the context cache is not. An 8-bit context cache fits a
-96K context.
+Two servers that hold a model on the same GPU, for example a WSL service next
+to the Llama app, do not fit together. Windows then moves one server's GPU
+memory to system memory, and that server decodes at about 7 tok/s. Earlier
+measurements of 7 tok/s on this laptop were taken with such a second server
+running.
 
 ## How the Llama app sets them
 
@@ -138,7 +133,7 @@ The files for Bonsai 2 27B, from [`examples/bonsai`](../examples/bonsai):
 | --- | --- | --- |
 | `runtimes.ini` | llamaenv | `[runtime prism]` with the archive URLs, `models = prism-ml/Ternary-Bonsai-2-27B-gguf`, and `preset = presets/prism.ini` |
 | `runtimes.lock` | llamaenv | the SHA-256 of each archive, and of a preset that came from a URL |
-| `presets/prism.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304`, `parallel = 1`, and an 8-bit context cache |
+| `presets/prism.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
 | `state/<port>/prism.preset.ini` | llama.cpp, written by llamaenv | the combined preset, while the switcher runs |
 
 The folder is `%LOCALAPPDATA%\llamaenv\` on Windows. On Linux, config files and
