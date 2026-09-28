@@ -89,7 +89,7 @@ func TestServeWithoutMappingsIsThePlainOfficialServe(t *testing.T) {
 // arguments: the standard path.
 func TestServeFallsBackToTheOfficialServeWhenTheSwitcherFails(t *testing.T) {
 	out, home := fakeLlamaHome(t, 0)
-	if err := os.WriteFile(filepath.Join(home, "models.ini"), []byte("[prism-ml/Ternary-Bonsai-2-27B-gguf]\nruntime = prism\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("[runtime prism]\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var lc net.ListenConfig
@@ -110,7 +110,7 @@ func TestServeFallsBackToTheOfficialServeWhenTheSwitcherFails(t *testing.T) {
 
 func TestBrokenConfigFallsBackToTheOfficialServe(t *testing.T) {
 	out, home := fakeLlamaHome(t, 0)
-	if err := os.WriteFile(filepath.Join(home, "models.ini"), []byte("not ini\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("not ini\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code := Main([]string{"serve", "--port", "2276"}); code != 0 {
@@ -125,7 +125,7 @@ func TestDefaultRuntimeWithoutUnifiedLlamaIsAConfigError(t *testing.T) {
 	_, home := fakeLlamaHome(t, 0)
 	dir := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(dir, runtimes.Exe("llama-server")), []byte("x"), 0o600))
-	must(t, os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("[prism]\npath = "+dir+"\n"), 0o600))
+	must(t, os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("[runtime prism]\npath = "+dir+"\n"), 0o600))
 	must(t, os.WriteFile(filepath.Join(home, "llamaenv.ini"), []byte("default = prism\n"), 0o600))
 	if _, _, err := options(os.Args[0], nil, func(string) {}); err == nil || !strings.Contains(err.Error(), "cannot serve every model") {
 		t.Errorf("got %v", err)

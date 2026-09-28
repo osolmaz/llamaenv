@@ -17,7 +17,7 @@ const Official = "official"
 
 // Dirs are llamaenv's folders. On Windows both are %LOCALAPPDATA%\llamaenv.
 type Dirs struct {
-	Config string // llamaenv.ini, runtimes.ini, models.ini, runtimes.lock
+	Config string // llamaenv.ini, runtimes.ini, runtimes.lock, presets
 	Data   string // bin, runtimes, downloads, logs, state
 }
 
@@ -63,25 +63,26 @@ func (d Dirs) Bin() string { return filepath.Join(d.Data, "bin") }
 // Runtimes is the folder that holds downloaded runtimes.
 func (d Dirs) Runtimes() string { return filepath.Join(d.Data, "runtimes") }
 
-// State is the folder for the running switcher's state file.
+// State holds one folder per running switcher, named after its port.
 func (d Dirs) State() string { return filepath.Join(d.Data, "state") }
 
 // Logs is the folder for logs.
 func (d Dirs) Logs() string { return filepath.Join(d.Data, "logs") }
 
-// Config holds llamaenv's four config files.
+// Presets is the folder for the llama.cpp presets that runtimes use.
+func (d Dirs) Presets() string { return filepath.Join(d.Config, "presets") }
+
+// Config holds llamaenv's config files.
 type Config struct {
 	Dirs     Dirs
 	Settings *File // llamaenv.ini: default runtime and switcher settings
-	Runtimes *File // runtimes.ini: runtime sources
-	Models   *File // models.ini: which model uses which runtime
-	Lock     *File // runtimes.lock: SHA-256 of every downloaded archive
+	Runtimes *File // runtimes.ini: runtime sources, their models, and their presets
+	Lock     *File // runtimes.lock: SHA-256 of every download
 }
 
 const (
 	settingsFile = "llamaenv.ini"
 	runtimesFile = "runtimes.ini"
-	modelsFile   = "models.ini"
 	lockFile     = "runtimes.lock"
 )
 
@@ -89,7 +90,7 @@ const (
 func Load(d Dirs) (*Config, error) {
 	c := &Config{Dirs: d}
 	for name, dst := range map[string]**File{
-		settingsFile: &c.Settings, runtimesFile: &c.Runtimes, modelsFile: &c.Models, lockFile: &c.Lock,
+		settingsFile: &c.Settings, runtimesFile: &c.Runtimes, lockFile: &c.Lock,
 	} {
 		f, err := readINI(filepath.Join(d.Config, name))
 		if err != nil {
@@ -115,13 +116,13 @@ func readINI(path string) (*File, error) {
 	return f, nil
 }
 
-// Save writes all four files.
+// Save writes all config files.
 func (c *Config) Save() error {
 	if err := os.MkdirAll(c.Dirs.Config, 0o750); err != nil {
 		return err
 	}
 	for name, f := range map[string]*File{
-		settingsFile: c.Settings, runtimesFile: c.Runtimes, modelsFile: c.Models, lockFile: c.Lock,
+		settingsFile: c.Settings, runtimesFile: c.Runtimes, lockFile: c.Lock,
 	} {
 		if err := writeAtomic(filepath.Join(c.Dirs.Config, name), f.String()); err != nil {
 			return err
@@ -153,34 +154,80 @@ func (c *Config) Exclusive() bool {
 	return !ok || (!strings.EqualFold(v, "false") && v != "0" && !strings.EqualFold(v, "no"))
 }
 
-// Mapping is one models.ini entry.
+// runtimes.ini has one "[runtime <name>]" section per runtime. The sections
+// name runtimes, not models, so the file cannot be taken for a llama.cpp
+// preset.
+const runtimePrefix = "runtime "
+
+// RuntimeSection returns the section name of a runtime in runtimes.ini.
+func RuntimeSection(name string) string { return runtimePrefix + name }
+
+// Runtime returns a runtime's section in runtimes.ini, or nil.
+func (c *Config) Runtime(name string) *Section {
+	if name == "" {
+		return nil
+	}
+	return c.Runtimes.Section(RuntimeSection(name))
+}
+
+// RuntimeNames returns the added runtimes in file order. The official
+// runtime is built in and never listed, even when it holds mappings.
+func (c *Config) RuntimeNames() []string {
+	var names []string
+	for _, s := range c.Runtimes.Sections() {
+		if n, ok := runtimeName(s); ok && n != Official {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+func runtimeName(s *Section) (string, bool) {
+	if len(s.Name) <= len(runtimePrefix) || !strings.EqualFold(s.Name[:len(runtimePrefix)], runtimePrefix) {
+		return "", false
+	}
+	return strings.TrimSpace(s.Name[len(runtimePrefix):]), true
+}
+
+// Mapping is one model in a runtime's "models" list.
 type Mapping struct {
 	Model   string // "<repo>" or "<repo>:<quant>"
 	Runtime string
 }
 
-// Mappings returns the models.ini entries, sorted by model.
+// Mappings returns every mapped model, sorted by model.
 func (c *Config) Mappings() []Mapping {
 	var m []Mapping
-	for _, s := range c.Models.Sections() {
-		if rt, ok := s.Get("runtime"); ok && rt != "" {
-			m = append(m, Mapping{Model: s.Name, Runtime: rt})
+	for _, s := range c.Runtimes.Sections() {
+		name, ok := runtimeName(s)
+		if !ok {
+			continue
+		}
+		for _, model := range modelList(s) {
+			m = append(m, Mapping{Model: model, Runtime: name})
 		}
 	}
 	sort.Slice(m, func(i, j int) bool { return strings.ToLower(m[i].Model) < strings.ToLower(m[j].Model) })
 	return m
 }
 
+func modelList(s *Section) []string {
+	v, _ := s.Get("models")
+	return strings.Fields(v)
+}
+
 // RuntimeFor returns the runtime mapped to a model ID ("<repo>:<quant>").
-// An entry for the exact ID wins over an entry for the whole repo.
+// An entry for the exact ID wins over an entry for the whole repo. Case is
+// ignored, as on the Hugging Face Hub. These are llamaenv's matching rules,
+// not llama.cpp's preset rules.
 func (c *Config) RuntimeFor(modelID string) (string, bool) {
 	if modelID == "" {
 		return "", false
 	}
 	lookup := func(name string) (string, bool) {
-		if s := c.Models.Section(name); s != nil && s.Name != "" {
-			if rt, ok := s.Get("runtime"); ok && rt != "" {
-				return rt, true
+		for _, m := range c.Mappings() {
+			if strings.EqualFold(m.Model, name) {
+				return m.Runtime, true
 			}
 		}
 		return "", false
@@ -192,4 +239,57 @@ func (c *Config) RuntimeFor(modelID string) (string, bool) {
 		return lookup(repo)
 	}
 	return "", false
+}
+
+// Map moves a model to a runtime's "models" list.
+func (c *Config) Map(model, runtime string) {
+	c.Unmap(model)
+	s := c.Runtimes.Section(RuntimeSection(runtime))
+	var models []string
+	if s != nil {
+		models = modelList(s)
+	}
+	c.Runtimes.Set(RuntimeSection(runtime), "models", strings.Join(append(models, model), " "))
+}
+
+// Unmap removes a model from every "models" list and reports whether it was
+// mapped. An official section without models goes away.
+func (c *Config) Unmap(model string) bool {
+	found := false
+	for _, s := range c.Runtimes.Sections() {
+		name, ok := runtimeName(s)
+		if !ok {
+			continue
+		}
+		var keep []string
+		for _, m := range modelList(s) {
+			if strings.EqualFold(m, model) {
+				found = true
+			} else {
+				keep = append(keep, m)
+			}
+		}
+		if len(keep) > 0 {
+			s.Set("models", strings.Join(keep, " "))
+			continue
+		}
+		s.Delete("models")
+		if name == Official && len(s.Keys()) == 0 {
+			c.Runtimes.DeleteSection(s.Name)
+		}
+	}
+	return found
+}
+
+// Preset returns the full path of a runtime's llama.cpp preset, or "".
+func (c *Config) Preset(runtime string) string {
+	s := c.Runtime(runtime)
+	if s == nil {
+		return ""
+	}
+	p, _ := s.Get("preset")
+	if p == "" {
+		return ""
+	}
+	return filepath.Join(c.Dirs.Config, filepath.FromSlash(p))
 }

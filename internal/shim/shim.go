@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -82,9 +83,10 @@ func options(real string, serveArgs []string, logf func(string)) (switcher.Optio
 		Default:     switcher.Launch{Program: real, Prefix: []string{"serve"}},
 		DefaultName: config.Official,
 		Runtimes:    map[string]switcher.Launch{},
+		Presets:     map[string]string{},
 		Unavailable: map[string]error{},
 		Exclusive:   c.Exclusive(),
-		StateFile:   filepath.Join(dirs.State(), "switcher.json"),
+		StateDir:    filepath.Join(dirs.State(), strconv.Itoa(sa.Port)),
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		Log:         logf,
@@ -98,6 +100,9 @@ func options(real string, serveArgs []string, logf func(string)) (switcher.Optio
 	}
 	if err := setDefault(c, &opt); err != nil {
 		return opt, false, err
+	}
+	if c.Preset(opt.DefaultName) != "" {
+		logf("the default runtime " + opt.DefaultName + " serves every model, so its preset is not used")
 	}
 	addRuntimes(c, mappings, &opt)
 	return opt, true, nil
@@ -147,6 +152,9 @@ func addRuntimes(c *config.Config, mappings []config.Mapping, opt *switcher.Opti
 		}
 		prog, prefix := rt.Launch()
 		opt.Runtimes[name] = switcher.Launch{Program: prog, Prefix: prefix}
+		if p := c.Preset(name); p != "" {
+			opt.Presets[name] = p
+		}
 	}
 }
 

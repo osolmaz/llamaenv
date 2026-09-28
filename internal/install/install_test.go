@@ -72,10 +72,10 @@ func TestUninstallLeavesNoTrace(t *testing.T) {
 	go func() { _ = sleeper.Wait(); close(exited) }()
 	st, err := json.Marshal(switcher.State{PID: sleeper.Process.Pid})
 	must(t, err)
-	must(t, os.MkdirAll(d.State(), 0o750))
-	must(t, os.WriteFile(filepath.Join(d.State(), "switcher.json"), st, 0o600))
+	must(t, os.MkdirAll(filepath.Join(d.State(), "2276"), 0o750))
+	must(t, os.WriteFile(filepath.Join(d.State(), "2276", "switcher.json"), st, 0o600))
 	must(t, os.MkdirAll(d.Config, 0o750))
-	must(t, os.WriteFile(filepath.Join(d.Config, "models.ini"), []byte("[a/b]\nruntime = x\n"), 0o600))
+	must(t, os.WriteFile(filepath.Join(d.Config, "runtimes.ini"), []byte("[runtime x]\nmodels = a/b\n"), 0o600))
 
 	var log []string
 	must(t, Uninstall(d, func(s string) { log = append(log, s) }))
@@ -117,7 +117,7 @@ func TestUninstallWithOneFolderForConfigAndData(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := filepath.Join(t.TempDir(), "llamaenv")
 	must(t, os.MkdirAll(filepath.Join(dir, "bin"), 0o750))
-	must(t, os.WriteFile(filepath.Join(dir, "models.ini"), []byte("[a/b]\nruntime = x\n"), 0o600))
+	must(t, os.WriteFile(filepath.Join(dir, "runtimes.ini"), []byte("[runtime x]\nmodels = a/b\n"), 0o600))
 	must(t, Uninstall(config.Dirs{Config: dir, Data: dir}, func(string) {}))
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Error("folder left behind")

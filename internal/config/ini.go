@@ -105,11 +105,7 @@ func (f *File) Get(section, key string) (string, bool) {
 func (f *File) Set(section, key, value string) {
 	s := f.Section(section)
 	if s == nil {
-		s = &Section{Name: section}
-		if last := f.sections[len(f.sections)-1]; len(last.lines) > 0 && last.lines[len(last.lines)-1].raw != "" {
-			last.lines = append(last.lines, line{})
-		}
-		f.sections = append(f.sections, s)
+		s = f.addSection(section)
 	}
 	s.Set(key, value)
 }
@@ -137,19 +133,34 @@ func (s *Section) Get(key string) (string, bool) {
 
 // Set replaces the value of a key, or appends the key.
 func (s *Section) Set(key, value string) {
-	raw := key + " = " + value
-	for i, l := range s.lines {
-		if l.key != "" && strings.EqualFold(l.key, key) {
-			s.lines[i] = line{raw: raw, key: key, value: value}
+	l := line{raw: key + " = " + value, key: key, value: value}
+	for i, old := range s.lines {
+		if old.key != "" && strings.EqualFold(old.key, key) {
+			s.lines[i] = l
 			return
 		}
 	}
-	// Insert before trailing blank lines, so sections stay separated.
+	s.insert(l)
+}
+
+// insert adds a line before trailing blank lines, so sections stay separated.
+func (s *Section) insert(l line) {
 	at := len(s.lines)
 	for at > 0 && s.lines[at-1].key == "" && strings.TrimSpace(s.lines[at-1].raw) == "" {
 		at--
 	}
-	s.lines = append(s.lines[:at], append([]line{{raw: raw, key: key, value: value}}, s.lines[at:]...)...)
+	s.lines = append(s.lines[:at], append([]line{l}, s.lines[at:]...)...)
+}
+
+// Delete removes a key and reports whether it existed.
+func (s *Section) Delete(key string) bool {
+	for i, l := range s.lines {
+		if l.key != "" && strings.EqualFold(l.key, key) {
+			s.lines = append(s.lines[:i], s.lines[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // Keys returns the keys and values in order.

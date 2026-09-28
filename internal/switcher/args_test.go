@@ -17,12 +17,18 @@ func TestParseServeArgsKeepsTheLlamaAppsArguments(t *testing.T) {
 	if a.Address() != "127.0.0.1:2276" {
 		t.Errorf("address %s", a.Address())
 	}
-	want := []string{"--jinja", "--sleep-idle-seconds", "300", "--models-preset", `C:\x.ini`}
-	if !reflect.DeepEqual(a.Rest, want) {
-		t.Errorf("rest %v", a.Rest)
+	want := []string{"--jinja", "--sleep-idle-seconds", "300"}
+	if !reflect.DeepEqual(a.Rest, want) || a.Preset != `C:\x.ini` {
+		t.Errorf("rest %v, preset %q", a.Rest, a.Preset)
 	}
-	if got := a.ForBackend(9000); !reflect.DeepEqual(got, append(want, "--host", "127.0.0.1", "--port", "9000")) {
+	if got := a.ForBackend(9000, a.Preset); !reflect.DeepEqual(got, append(want, "--models-preset", `C:\x.ini`, "--host", "127.0.0.1", "--port", "9000")) {
 		t.Errorf("backend args %v", got)
+	}
+	if got := a.ForBackend(9000, ""); !reflect.DeepEqual(got, append(want, "--host", "127.0.0.1", "--port", "9000")) {
+		t.Errorf("backend args without a preset %v", got)
+	}
+	if a, _ := ParseServeArgs([]string{"--models-preset=p.ini"}); a.Preset != "p.ini" || len(a.Rest) != 0 {
+		t.Errorf("inline preset: %+v", a)
 	}
 }
 
@@ -37,7 +43,7 @@ func TestParseServeArgsAddresses(t *testing.T) {
 			t.Errorf("%v: %s %v %v, want %s", args, a.Address(), a.Rest, err, want)
 		}
 	}
-	for _, bad := range [][]string{{"--port"}, {"--port", "x"}, {"--port", "70000"}} {
+	for _, bad := range [][]string{{"--port"}, {"--port", "x"}, {"--port", "70000"}, {"--models-preset"}} {
 		if _, err := ParseServeArgs(bad); err == nil {
 			t.Errorf("%v: no error", bad)
 		}

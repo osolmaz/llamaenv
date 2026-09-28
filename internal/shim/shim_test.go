@@ -62,7 +62,7 @@ func TestNoMappingsMeansPurePassthrough(t *testing.T) {
 func TestMappingToAMissingRuntimeIsReportedNotFatal(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("LLAMAENV_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "models.ini"), []byte("[prism-ml/Ternary-Bonsai-2-27B-gguf]\nruntime = prism\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("[runtime prism]\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	opt, needed, err := options("/usr/bin/llama", []string{"--port", "2276"}, func(string) {})
@@ -84,5 +84,37 @@ func TestRuntimeNamesSkipTheDefaultAndDuplicates(t *testing.T) {
 	}, "pinned")
 	if strings.Join(got, ",") != "prism,other" {
 		t.Errorf("got %v", got)
+	}
+}
+
+func write(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMappedRuntimeGetsItsPresetButTheDefaultDoesNot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("LLAMAENV_HOME", home)
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, runtimes.Exe("llama")), "x")
+	write(t, filepath.Join(dir, runtimes.Exe("llama-server")), "x")
+	write(t, filepath.Join(home, "runtimes.ini"), "[runtime prism]\npath = "+dir+"\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\npreset = presets/prism.ini\n\n"+
+		"[runtime pinned]\npath = "+dir+"\npreset = presets/pinned.ini\n")
+	write(t, filepath.Join(home, "llamaenv.ini"), "default = pinned\n")
+	var logs []string
+	opt, needed, err := options("/usr/bin/llama", []string{"--port", "2276"}, func(s string) { logs = append(logs, s) })
+	if err != nil || !needed {
+		t.Fatalf("needed %v, err %v", needed, err)
+	}
+	if got := opt.Presets["prism"]; got != filepath.Join(home, "presets", "prism.ini") || len(opt.Presets) != 1 {
+		t.Errorf("presets %v", opt.Presets)
+	}
+	if opt.StateDir != filepath.Join(home, "state", "2276") {
+		t.Errorf("state dir %s", opt.StateDir)
+	}
+	if !strings.Contains(strings.Join(logs, "\n"), "its preset is not used") {
+		t.Errorf("logs %v", logs)
 	}
 }

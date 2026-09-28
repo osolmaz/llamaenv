@@ -3,14 +3,10 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -46,6 +42,10 @@ Models:
   map <repo[:quant]> <runtime>
   unmap <repo[:quant]>
   list                        mappings and the runtime each one uses
+
+Presets (plain llama.cpp presets, used only by that runtime's router):
+  preset <runtime> <file | URL>
+  preset <runtime> --remove
 
 Diagnosis:
   status                      the running switcher and its routers
@@ -89,6 +89,7 @@ var configCommands = map[string]configCommand{
 	"map":      mapModel,
 	"unmap":    unmapModel,
 	"list":     list,
+	"preset":   preset,
 }
 
 func run(args []string, out io.Writer) error {
@@ -133,10 +134,10 @@ func mapModel(c *config.Config, args []string, out io.Writer) error {
 		return errors.New("usage: llamaenv map <repo[:quant]> <runtime>")
 	}
 	model, rt := args[0], args[1]
-	if rt != config.Official && c.Runtimes.Section(rt) == nil {
+	if rt != config.Official && c.Runtime(rt) == nil {
 		return fmt.Errorf("unknown runtime %q; add it with 'llamaenv runtime add' first", rt)
 	}
-	c.Models.Set(model, "runtime", rt)
+	c.Map(model, rt)
 	if err := c.Save(); err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func unmapModel(c *config.Config, args []string, out io.Writer) error {
 	if len(args) != 1 {
 		return errors.New("usage: llamaenv unmap <repo[:quant]>")
 	}
-	if !c.Models.DeleteSection(args[0]) {
+	if !c.Unmap(args[0]) {
 		return fmt.Errorf("%s has no mapping", args[0])
 	}
 	if err := c.Save(); err != nil {
@@ -288,8 +289,7 @@ func list(c *config.Config, _ []string, out io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	say(tw, "MODEL\tRUNTIME\tSOURCE\tSTATE\n")
-	source := filepath.Join(c.Dirs.Config, "models.ini")
+	say(tw, "MODEL\tRUNTIME\tPRESET\tSTATE\n")
 	for _, e := range m {
 		state := "ready"
 		if e.Runtime != config.Official {
@@ -297,24 +297,72 @@ func list(c *config.Config, _ []string, out io.Writer) error {
 				state = err.Error()
 			}
 		}
-		say(tw, "%s\t%s\t%s\t%s\n", e.Model, e.Runtime, source, state)
+		say(tw, "%s\t%s\t%s\t%s\n", e.Model, e.Runtime, orNone(c.Preset(e.Runtime)), state)
 	}
 	return tw.Flush()
 }
 
-func status(d config.Dirs, _ []string, out io.Writer) error {
-	data, err := os.ReadFile(filepath.Join(d.State(), "switcher.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		say(out, "no switcher is running\n")
-		return nil
+func orNone(s string) string {
+	if s == "" {
+		return "-"
 	}
+	return s
+}
+
+func preset(c *config.Config, args []string, out io.Writer) error {
+	if len(args) != 2 {
+		return errors.New("usage: llamaenv preset <runtime> <file | URL | --remove>")
+	}
+	if args[1] == "--remove" {
+		return removePreset(c, args[0], out)
+	}
+	name := args[0]
+	dst, err := runtimes.SetPreset(c, name, args[1], logTo(out))
 	if err != nil {
 		return err
 	}
-	var st switcher.State
-	if err := json.Unmarshal(data, &st); err != nil {
+	if err := c.Save(); err != nil {
 		return err
 	}
+	say(out, "%s now uses the preset %s (restart the llama server to apply)\n", name, dst)
+	if c.Default() == name {
+		say(out, "note: %s is the default runtime, which serves every model, so it does not use a preset\n", name)
+	}
+	return nil
+}
+
+func removePreset(c *config.Config, name string, out io.Writer) error {
+	if c.Preset(name) == "" {
+		return fmt.Errorf("runtime %s has no preset", name)
+	}
+	if err := runtimes.RemovePreset(c, name); err != nil {
+		return err
+	}
+	if err := c.Save(); err != nil {
+		return err
+	}
+	say(out, "removed the preset of %s (restart the llama server to apply)\n", name)
+	return nil
+}
+
+func status(d config.Dirs, _ []string, out io.Writer) error {
+	states := switcher.ReadStates(d.State())
+	if len(states) == 0 {
+		say(out, "no switcher is running\n")
+		return nil
+	}
+	for i, st := range states {
+		if i > 0 {
+			say(out, "\n")
+		}
+		if err := printState(out, st); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func printState(out io.Writer, st switcher.State) error {
 	say(out, "switcher pid %d on http://%s\n", st.PID, st.Address)
 	tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	say(tw, "RUNTIME\tPORT\tPROGRAM\tSTATE\n")

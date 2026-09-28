@@ -40,7 +40,7 @@ func TestNewFileHasNoLeadingBlankLines(t *testing.T) {
 
 func TestRuntimeForPrefersTheExactModelID(t *testing.T) {
 	c := &Config{}
-	c.Models, _ = ParseINI("[prism-ml/Ternary-Bonsai-2-27B-gguf]\nruntime = prism\n\n[prism-ml/Ternary-Bonsai-2-27B-gguf:PTQ1_0]\nruntime = official\n")
+	c.Runtimes, _ = ParseINI("[runtime prism]\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n\n[runtime official]\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf:PTQ1_0\n")
 	cases := map[string]string{
 		"prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0":  "prism",
 		"prism-ml/ternary-bonsai-2-27b-gguf:PQ2_0":  "prism", // Hub repo IDs ignore case
@@ -66,7 +66,7 @@ func TestLoadAndSaveRoundTrip(t *testing.T) {
 	}
 	c.Settings.Set("", "default", "official-b11200")
 	c.Settings.Set("", "exclusive", "false")
-	c.Models.Set("a/b", "runtime", "x")
+	c.Map("a/b", "x")
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestLoadAndSaveRoundTrip(t *testing.T) {
 	if c2.Default() != "official-b11200" || c2.Exclusive() || len(c2.Mappings()) != 1 {
 		t.Errorf("reloaded: %s %v %v", c2.Default(), c2.Exclusive(), c2.Mappings())
 	}
-	if _, err := os.Stat(filepath.Join(d.Config, "models.ini")); err != nil {
+	if _, err := os.Stat(filepath.Join(d.Config, "runtimes.ini")); err != nil {
 		t.Error(err)
 	}
 }
@@ -118,17 +118,17 @@ func TestSectionKeysAndBrokenFiles(t *testing.T) {
 		t.Error("value from a missing section")
 	}
 	d := Dirs{Config: t.TempDir(), Data: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(d.Config, "models.ini"), []byte("broken\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(d.Config, "runtimes.ini"), []byte("broken\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(d); err == nil || !strings.Contains(err.Error(), "models.ini") {
+	if _, err := Load(d); err == nil || !strings.Contains(err.Error(), "runtimes.ini") {
 		t.Errorf("broken file: %v", err)
 	}
 	blocked := Dirs{Config: filepath.Join(t.TempDir(), "file")}
 	if err := os.WriteFile(blocked.Config, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c := &Config{Dirs: blocked, Settings: f, Runtimes: f, Models: f, Lock: f}
+	c := &Config{Dirs: blocked, Settings: f, Runtimes: f, Lock: f}
 	if err := c.Save(); err == nil {
 		t.Error("saved into a file instead of a folder")
 	}
@@ -145,5 +145,61 @@ func TestDirsForEachSystem(t *testing.T) {
 	}
 	if d, _ := dirsFor("linux", env(map[string]string{"LLAMAENV_HOME": "/p"}), "/h"); d.Config != "/p" || d.Data != "/p" {
 		t.Errorf("LLAMAENV_HOME: %+v", d)
+	}
+}
+
+func TestMapAndUnmapEditTheRuntimeModelLists(t *testing.T) {
+	c := &Config{Dirs: Dirs{Config: "/cfg"}}
+	c.Runtimes, _ = ParseINI("; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npreset = presets/prism.ini\n")
+	c.Map("prism-ml/Ternary-Bonsai-2-27B-gguf", "prism")
+	c.Map("a/b", "prism")
+	c.Map("c/d:Q4_0", Official)
+	c.Map("A/B", Official) // moves a/b, whatever its case
+	want := "; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npreset = presets/prism.ini\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n\n[runtime official]\nmodels = c/d:Q4_0 A/B\n"
+	if got := c.Runtimes.String(); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if n := c.RuntimeNames(); len(n) != 1 || n[0] != "prism" {
+		t.Errorf("names %v", n)
+	}
+	if p := c.Preset("prism"); p != filepath.Join("/cfg", "presets", "prism.ini") {
+		t.Errorf("preset %q", p)
+	}
+	if c.Preset("official") != "" || c.Preset("missing") != "" || c.Runtime("") != nil {
+		t.Error("preset for a runtime without one")
+	}
+}
+
+func TestUnmapRemovesEmptyEntries(t *testing.T) {
+	c := &Config{}
+	c.Runtimes, _ = ParseINI("[runtime prism]\npath = /p\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf a/b\n\n[runtime official]\nmodels = c/d:Q4_0\n")
+	if !c.Unmap("c/d:Q4_0") || !c.Unmap("a/b") || c.Unmap("a/b") {
+		t.Error("unmap results")
+	}
+	if strings.Contains(c.Runtimes.String(), "official") {
+		t.Errorf("empty official section kept:\n%s", c.Runtimes.String())
+	}
+	c.Unmap("prism-ml/Ternary-Bonsai-2-27B-gguf")
+	if _, ok := c.Runtime("prism").Get("models"); ok || c.Runtime("prism") == nil {
+		t.Error("prism lost its section or kept an empty models key")
+	}
+}
+
+func TestOverlayPresetLetsTheTopPresetWin(t *testing.T) {
+	base := "[*]\nmmap = 1\n\n[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]\nctx-size = 98304\nparallel = 1\n"
+	top := "version = 1\n[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]\nctx-size = 32768\n\n[PRISM-ML/other:Q4_0]\nCtx-Size = 4096\n"
+	got, err := OverlayPreset(base, top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "version = 1\n[*]\nmmap = 1\n\n[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]\nctx-size = 32768\nparallel = 1\n\n[PRISM-ML/other:Q4_0]\nCtx-Size = 4096\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if _, err := OverlayPreset("bad", ""); err == nil {
+		t.Error("broken base accepted")
+	}
+	if _, err := OverlayPreset("", "bad"); err == nil {
+		t.Error("broken top accepted")
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,12 +31,14 @@ func TestMain(m *testing.M) {
 // fakeRouter serves the router endpoints that llamaenv and the Llama app use.
 // Every answer names the router, so tests can see who served a request.
 type fakeRouter struct {
-	name    string
-	mu      sync.Mutex
-	order   []string
-	status  map[string]string
-	subs    []chan string
-	reloads int
+	name       string
+	presetFile string // --models-preset
+	preset     string // its text, read at start and at each reload
+	mu         sync.Mutex
+	order      []string
+	status     map[string]string
+	subs       []chan string
+	reloads    int
 }
 
 func runFakeRouter(args []string) {
@@ -43,9 +47,11 @@ func runFakeRouter(args []string) {
 	models := fs.String("models", "", "")
 	host := fs.String("host", "127.0.0.1", "")
 	port := fs.Int("port", 0, "")
+	preset := fs.String("models-preset", "", "")
 	_ = fs.Parse(args)
 
-	f := &fakeRouter{name: *name, status: map[string]string{}}
+	f := &fakeRouter{name: *name, status: map[string]string{}, presetFile: *preset}
+	f.readPreset()
 	for _, m := range strings.Split(*models, ",") {
 		f.status[m] = "unloaded"
 		f.order = append(f.order, m)
@@ -90,12 +96,22 @@ func (f *fakeRouter) list(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	if r.URL.Query().Get("reload") != "" {
 		f.reloads++
+		f.readPreset()
 	}
 	data := []map[string]any{}
 	for _, m := range f.order {
 		data = append(data, map[string]any{"id": m, "owned_by": f.name, "status": map[string]string{"value": f.status[m]}})
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "reloads": f.reloads})
+	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "reloads": f.reloads, "preset_file": f.presetFile, "preset": f.preset})
+}
+
+// readPreset reads the preset file like a router does. Callers hold mu, or
+// run before the server starts.
+func (f *fakeRouter) readPreset() {
+	if f.presetFile != "" {
+		data, _ := os.ReadFile(f.presetFile)
+		f.preset = string(data)
+	}
 }
 
 func (f *fakeRouter) change(status string) http.HandlerFunc {
@@ -190,7 +206,7 @@ func start(t *testing.T, mutate func(*Options)) *harness {
 			return ""
 		},
 		Exclusive: true,
-		StateFile: t.TempDir() + "/switcher.json",
+		StateDir:  filepath.Join(t.TempDir(), strconv.Itoa(port)),
 	}
 	if mutate != nil {
 		mutate(&opt)
@@ -433,19 +449,28 @@ func TestMissingDefaultRouterIsASetupError(t *testing.T) {
 	}
 }
 
-func TestStateFileListsTheRouters(t *testing.T) {
-	var state string
-	start(t, func(o *Options) { state = o.StateFile })
-	data, err := os.ReadFile(state) //nolint:gosec // a test's own temporary file
-	if err != nil {
-		t.Fatal(err)
+func TestEachSwitcherHasItsOwnState(t *testing.T) {
+	var dirs []string
+	parent := t.TempDir()
+	// Registered first, so it runs last: after both switchers stopped.
+	t.Cleanup(func() { checkRemoved(t, dirs) })
+	for range 2 {
+		start(t, func(o *Options) {
+			o.StateDir = filepath.Join(parent, strconv.Itoa(o.Args.Port))
+			dirs = append(dirs, o.StateDir)
+		})
 	}
-	var st State
-	if err := json.Unmarshal(data, &st); err != nil {
-		t.Fatal(err)
+	states := ReadStates(parent)
+	if len(states) != 2 || states[0].Address == states[1].Address {
+		t.Fatalf("states: %+v", states)
 	}
-	if len(st.Backends) != 2 || st.Backends[0].Name != "official" || st.Backends[1].Name != "prism" {
-		t.Errorf("state: %+v", st)
+	for _, st := range states {
+		if len(st.Backends) != 2 || st.Backends[0].Name != "official" || st.Backends[1].Name != "prism" {
+			t.Errorf("state: %+v", st)
+		}
+	}
+	if ReadStates(filepath.Join(parent, "missing")) != nil {
+		t.Error("states from a missing folder")
 	}
 }
 
@@ -466,26 +491,153 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
+func checkRemoved(t *testing.T, dirs []string) {
+	t.Helper()
+	for _, d := range dirs {
+		if _, err := os.Stat(d); !os.IsNotExist(err) {
+			t.Errorf("%s is left after the switcher stopped", d)
+		}
+	}
+}
+
 func TestReloadReachesEveryRouter(t *testing.T) {
 	var state string
-	h := start(t, func(o *Options) { state = o.StateFile })
+	h := start(t, func(o *Options) { state = o.StateDir })
 	if code, _ := h.request(http.MethodGet, "/models?reload=1", ""); code != http.StatusOK {
 		t.Fatalf("reload: %d", code)
 	}
-	data, err := os.ReadFile(state) //nolint:gosec // a test's own temporary file
-	if err != nil {
-		t.Fatal(err)
-	}
-	var st State
-	if err := json.Unmarshal(data, &st); err != nil {
-		t.Fatal(err)
-	}
-	for _, b := range st.Backends {
-		// Ask each fake router directly how many reloads it saw.
-		direct := &harness{t: t, base: fmt.Sprintf("http://127.0.0.1:%d", b.Port)}
-		if _, body := direct.request(http.MethodGet, "/models", ""); !strings.Contains(body, `"reloads":1`) {
-			t.Errorf("router %s was not reloaded: %s", b.Name, body)
+	for name, l := range routerLists(t, state) {
+		if l.Reloads != 1 {
+			t.Errorf("router %s was not reloaded: %+v", name, l)
 		}
+	}
+}
+
+type routerList struct {
+	Reloads    int    `json:"reloads"`
+	PresetFile string `json:"preset_file"`
+	Preset     string `json:"preset"`
+}
+
+// routerLists asks each fake router directly for its list, by router name.
+func routerLists(t *testing.T, stateDir string) map[string]routerList {
+	t.Helper()
+	states := ReadStates(filepath.Dir(stateDir))
+	if len(states) != 1 {
+		t.Fatalf("states: %+v", states)
+	}
+	out := map[string]routerList{}
+	for _, b := range states[0].Backends {
+		direct := &harness{t: t, base: fmt.Sprintf("http://127.0.0.1:%d", b.Port)}
+		var l routerList
+		_, body := direct.request(http.MethodGet, "/models", "")
+		if err := json.Unmarshal([]byte(body), &l); err != nil {
+			t.Fatalf("%s: %v", b.Name, err)
+		}
+		out[b.Name] = l
+	}
+	return out
+}
+
+const (
+	runtimePreset = "[*]\nmmap = 1\n\n[" + bonsai + "]\nctx-size = 98304\nparallel = 1\n"
+	clientPreset  = "[" + bonsai + "]\nctx-size = 32768\n\n[" + gemma + "]\nctx-size = 8192\n"
+)
+
+func writeFile(t *testing.T, path, text string) string {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRuntimePresetGoesOnlyToItsRouter(t *testing.T) {
+	var state string
+	preset := writeFile(t, filepath.Join(t.TempDir(), "prism.ini"), runtimePreset)
+	start(t, func(o *Options) {
+		o.Presets = map[string]string{"prism": preset}
+		state = o.StateDir
+	})
+	lists := routerLists(t, state)
+	if l := lists["official"]; l.PresetFile != "" {
+		t.Errorf("the official router got a preset: %+v", l)
+	}
+	if l := lists["prism"]; l.PresetFile != preset || l.Preset != runtimePreset {
+		t.Errorf("prism router: %+v", l)
+	}
+}
+
+func TestClientPresetIsLaidOverTheRuntimePreset(t *testing.T) {
+	var state string
+	dir := t.TempDir()
+	preset := writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)
+	client := writeFile(t, filepath.Join(dir, "app.ini"), clientPreset)
+	h := start(t, func(o *Options) {
+		o.Args.Preset = client
+		o.Presets = map[string]string{"prism": preset}
+		state = o.StateDir
+	})
+	lists := routerLists(t, state)
+	if l := lists["official"]; l.PresetFile != client || l.Preset != clientPreset {
+		t.Errorf("the official router did not get the client's preset unchanged: %+v", l)
+	}
+	p := lists["prism"]
+	if p.PresetFile != filepath.Join(state, "prism.preset.ini") {
+		t.Errorf("prism router preset file %q", p.PresetFile)
+	}
+	for _, want := range []string{"Written by llamaenv", "mmap = 1", "ctx-size = 32768", "parallel = 1", "ctx-size = 8192"} {
+		if !strings.Contains(p.Preset, want) {
+			t.Errorf("combined preset lacks %q:\n%s", want, p.Preset)
+		}
+	}
+	// The Llama app changes a context size, then asks for a reload.
+	writeFile(t, client, "["+bonsai+"]\nctx-size = 16384\n")
+	if code, _ := h.request(http.MethodGet, "/models?reload=1", ""); code != http.StatusOK {
+		t.Fatalf("reload: %d", code)
+	}
+	if p := routerLists(t, state)["prism"]; !strings.Contains(p.Preset, "ctx-size = 16384") || strings.Contains(p.Preset, "32768") {
+		t.Errorf("reload did not refresh the combined preset:\n%s", p.Preset)
+	}
+}
+
+func TestClientPresetFromTheEnvironment(t *testing.T) {
+	var state string
+	dir := t.TempDir()
+	preset := writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)
+	t.Setenv("LLAMA_ARG_MODELS_PRESET", writeFile(t, filepath.Join(dir, "env.ini"), clientPreset))
+	start(t, func(o *Options) {
+		o.Presets = map[string]string{"prism": preset}
+		state = o.StateDir
+	})
+	if p := routerLists(t, state)["prism"]; !strings.Contains(p.Preset, "ctx-size = 32768") {
+		t.Errorf("the environment's preset was not laid over:\n%s", p.Preset)
+	}
+}
+
+func TestBrokenPresetAffectsOnlyItsRuntime(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]func(o *Options){
+		"missing preset": func(o *Options) { o.Presets = map[string]string{"prism": filepath.Join(dir, "missing.ini")} },
+		"broken preset": func(o *Options) {
+			o.Presets = map[string]string{"prism": writeFile(t, filepath.Join(dir, "broken.ini"), "not ini\n")}
+			o.Args.Preset = writeFile(t, filepath.Join(dir, "app.ini"), clientPreset)
+		},
+		"missing client preset": func(o *Options) {
+			o.Presets = map[string]string{"prism": writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)}
+			o.Args.Preset = filepath.Join(dir, "gone.ini")
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := start(t, mutate)
+			if code, body := h.request(http.MethodPost, "/v1/chat/completions", `{"model":"`+bonsai+`"}`); code != http.StatusServiceUnavailable || !strings.Contains(body, "preset") {
+				t.Errorf("bonsai: %d %s", code, body)
+			}
+			if code, body := h.request(http.MethodPost, "/v1/chat/completions", `{"model":"`+gemma+`"}`); code != http.StatusOK || !strings.Contains(body, "official") {
+				t.Errorf("gemma: %d %s", code, body)
+			}
+		})
 	}
 }
 

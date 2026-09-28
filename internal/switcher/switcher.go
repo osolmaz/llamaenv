@@ -33,17 +33,20 @@ type Options struct {
 	DefaultName string
 	// Runtimes are the other routers, by runtime name.
 	Runtimes map[string]Launch
+	// Presets are the runtimes' own llama.cpp presets, by runtime name.
+	Presets map[string]string
 	// Owner returns the runtime mapped to a model ID, or "".
 	Owner func(modelID string) string
 	// Unavailable explains mapped runtimes that could not be resolved.
 	Unavailable map[string]error
 	// Exclusive keeps at most one runtime with loaded models.
 	Exclusive bool
-	// StateFile is written while the switcher runs, for "llamaenv status".
-	StateFile string
-	Stdout    io.Writer
-	Stderr    io.Writer
-	Log       func(string)
+	// StateDir is this switcher's own folder, removed when it stops. It holds
+	// switcher.json for "llamaenv status" and the combined presets.
+	StateDir string
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Log      func(string)
 }
 
 // Switcher routes requests between routers.
@@ -74,7 +77,9 @@ func Run(ctx context.Context, opt Options) error {
 		return err
 	}
 	s.writeState()
-	defer func() { _ = os.Remove(opt.StateFile) }()
+	if opt.StateDir != "" {
+		defer func() { _ = os.RemoveAll(opt.StateDir) }()
+	}
 	return s.serve(ctx, listener)
 }
 
@@ -83,7 +88,9 @@ func newSwitcher(opt Options, group *proc.Group) *Switcher {
 	s.def = &backend{name: opt.DefaultName, launch: opt.Default, args: opt.Args, group: group, out: opt.Stdout, errOut: opt.Stderr}
 	for name, l := range opt.Runtimes {
 		pw := prefixWriter(opt.Stderr, "["+name+"] ")
-		s.runtimes[name] = &backend{name: name, launch: l, args: opt.Args, group: group, out: pw, errOut: pw}
+		b := &backend{name: name, launch: l, args: opt.Args, group: group, out: pw, errOut: pw, preset: opt.Presets[name]}
+		b.combined = filepath.Join(opt.StateDir, name+".preset.ini")
+		s.runtimes[name] = b
 	}
 	return s
 }
@@ -301,6 +308,24 @@ func (s *Switcher) all() []*backend {
 	return out
 }
 
+// StateFile is the name of the state file in a switcher's state folder.
+const StateFile = "switcher.json"
+
+// ReadStates returns the state of every running switcher, from the folders
+// in stateDir. Unreadable entries are skipped.
+func ReadStates(stateDir string) []State {
+	files, _ := filepath.Glob(filepath.Join(stateDir, "*", StateFile))
+	sort.Strings(files)
+	var out []State
+	for _, f := range files {
+		var st State
+		if data, err := os.ReadFile(filepath.Clean(f)); err == nil && json.Unmarshal(data, &st) == nil {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
 // State is what "llamaenv status" reads.
 type State struct {
 	PID      int            `json:"pid"`
@@ -317,10 +342,10 @@ type BackendState struct {
 }
 
 func (s *Switcher) writeState() {
-	if s.opt.StateFile == "" {
+	if s.opt.StateDir == "" {
 		return
 	}
-	if err := saveJSON(s.opt.StateFile, s.state()); err != nil {
+	if err := saveJSON(filepath.Join(s.opt.StateDir, StateFile), s.state()); err != nil {
 		s.opt.Log("state file: " + err.Error())
 	}
 }

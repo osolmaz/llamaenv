@@ -114,7 +114,7 @@ func TestAddUnpacksArchivesIntoOneFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(filepath.Dir(rt.Server), "cudart64_13.dll")); err != nil {
 		t.Error("cudart DLL is not next to llama-server:", err)
 	}
-	if src, _ := c.Runtimes.Get("prism", Platform()); src != strings.Join(urls, " ") {
+	if src, _ := c.Runtimes.Get("runtime prism", Platform()); src != strings.Join(urls, " ") {
 		t.Errorf("source %q", src)
 	}
 }
@@ -286,4 +286,35 @@ func TestUntarRefusesLinksThatLeaveTheFolder(t *testing.T) {
 			t.Errorf("link to %q accepted", target)
 		}
 	}
+}
+
+func TestPresetFromAURLIsPinned(t *testing.T) {
+	preset := "[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]\nctx-size = 98304\n"
+	files := map[string][]byte{"/preset.ini": []byte(preset), "/big.ini": make([]byte, maxPresetSize+1)}
+	srv := serveFiles(t, files)
+	c := newConfig(t)
+	dir := t.TempDir()
+	writeProgram(t, filepath.Join(dir, Exe("llama-server")))
+	_, err := Add(c, "prism", []string{dir}, func(string) {})
+	must(t, err)
+	url := srv.URL + "/preset.ini"
+	dst, err := SetPreset(c, "prism", url, func(string) {})
+	must(t, err)
+	if data, _ := os.ReadFile(dst); string(data) != preset { //nolint:gosec // the test's own file
+		t.Errorf("saved %q", data)
+	}
+	if sum, ok := c.Lock.Get(url, "sha256"); !ok || len(sum) != 64 {
+		t.Errorf("not pinned: %q", sum)
+	}
+	files["/preset.ini"] = []byte(preset + "parallel = 4\n")
+	if _, err := SetPreset(c, "prism", url, func(string) {}); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("changed preset accepted: %v", err)
+	}
+	if _, err := SetPreset(c, "prism", srv.URL+"/big.ini", func(string) {}); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("big preset accepted: %v", err)
+	}
+	if _, err := SetPreset(c, "prism", srv.URL+"/missing.ini", func(string) {}); err == nil {
+		t.Error("missing preset accepted")
+	}
+	must(t, RemovePreset(c, "missing"))
 }

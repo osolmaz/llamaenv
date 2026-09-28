@@ -103,9 +103,13 @@ func (s *Switcher) loadedModels(ctx context.Context, b *backend) []string {
 }
 
 // broadcast sends a request to every router and returns the default
-// router's answer. Used for "GET /models?reload=1".
+// router's answer. Used for "GET /models?reload=1", after the client changed
+// its preset: each runtime's combined preset is written again first.
 func (s *Switcher) broadcast(w http.ResponseWriter, r *http.Request) {
 	for _, b := range s.all()[1:] {
+		if err := b.refreshPreset(); err != nil {
+			s.opt.Log("reload " + b.name + ": " + err.Error())
+		}
 		if b.available() {
 			if err := s.get(r.Context(), b.url(r.URL.RequestURI())); err != nil {
 				s.opt.Log("reload " + b.name + ": " + err.Error())

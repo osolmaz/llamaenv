@@ -46,8 +46,8 @@ func Exe(name string) string {
 
 // Resolve finds an installed runtime by name.
 func Resolve(c *config.Config, name string) (Runtime, error) {
-	s := c.Runtimes.Section(name)
-	if s == nil || name == "" {
+	s := c.Runtime(name)
+	if s == nil || name == config.Official {
 		return Runtime{}, fmt.Errorf("unknown runtime %q; add it with 'llamaenv runtime add'", name)
 	}
 	dir := filepath.Join(c.Dirs.Runtimes(), name)
@@ -129,8 +129,7 @@ func addFolder(c *config.Config, name, folder string) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	c.Runtimes.DeleteSection(name)
-	c.Runtimes.Set(name, "path", abs)
+	setSource(c, name, "path", abs)
 	rt.Name = name
 	return rt, nil
 }
@@ -149,10 +148,29 @@ func addArchives(c *config.Config, name string, urls []string, log func(string))
 	if err != nil {
 		return Runtime{}, err
 	}
-	c.Runtimes.DeleteSection(name)
-	c.Runtimes.Set(name, Platform(), strings.Join(urls, " "))
+	setSource(c, name, Platform(), strings.Join(urls, " "))
 	rt.Name = name
 	return rt, nil
+}
+
+// setSource replaces a runtime's sources and keeps its models and preset.
+func setSource(c *config.Config, name, key, value string) {
+	sec := config.RuntimeSection(name)
+	kept := map[string]string{}
+	if s := c.Runtime(name); s != nil {
+		for _, k := range []string{"models", "preset"} {
+			if v, ok := s.Get(k); ok {
+				kept[k] = v
+			}
+		}
+	}
+	c.Runtimes.DeleteSection(sec)
+	c.Runtimes.Set(sec, key, value)
+	for _, k := range []string{"models", "preset"} {
+		if v, ok := kept[k]; ok {
+			c.Runtimes.Set(sec, k, v)
+		}
+	}
 }
 
 // Install downloads a registered runtime for this platform when it is missing.
@@ -160,7 +178,7 @@ func Install(c *config.Config, name string, log func(string)) (Runtime, error) {
 	if rt, err := Resolve(c, name); err == nil {
 		return rt, nil
 	}
-	src, ok := c.Runtimes.Get(name, Platform())
+	src, ok := c.Runtimes.Get(config.RuntimeSection(name), Platform())
 	if !ok || src == "" {
 		return Runtime{}, fmt.Errorf("runtime %q has no source for %s", name, Platform())
 	}
@@ -171,26 +189,24 @@ func Install(c *config.Config, name string, log func(string)) (Runtime, error) {
 	return Resolve(c, name)
 }
 
-// Remove deletes a runtime's files (never a folder used in place) and its
-// config entry.
+// Remove deletes a runtime's files (never a folder used in place), its
+// preset, and its config entry.
 func Remove(c *config.Config, name string) error {
-	if c.Runtimes.Section(name) == nil {
+	s := c.Runtime(name)
+	if s == nil || name == config.Official {
 		return fmt.Errorf("unknown runtime %q", name)
 	}
-	if _, inPlace := c.Runtimes.Get(name, "path"); !inPlace {
+	if _, inPlace := s.Get("path"); !inPlace {
 		if err := os.RemoveAll(filepath.Join(c.Dirs.Runtimes(), name)); err != nil {
 			return err
 		}
 	}
-	c.Runtimes.DeleteSection(name)
+	if err := RemovePreset(c, name); err != nil {
+		return err
+	}
+	c.Runtimes.DeleteSection(config.RuntimeSection(name))
 	return nil
 }
 
-// Names returns the registered runtimes.
-func Names(c *config.Config) []string {
-	var n []string
-	for _, s := range c.Runtimes.Sections() {
-		n = append(n, s.Name)
-	}
-	return n
-}
+// Names returns the added runtimes.
+func Names(c *config.Config) []string { return c.RuntimeNames() }

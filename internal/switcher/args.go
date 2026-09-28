@@ -9,11 +9,12 @@ import (
 )
 
 // ServeArgs are the arguments of "llama serve", split into the address that
-// the client uses and everything else.
+// the client uses, the client's preset, and everything else.
 type ServeArgs struct {
-	Host string
-	Port int
-	Rest []string // every other argument, in order, passed on to each router
+	Host   string
+	Port   int
+	Preset string   // --models-preset, when the client passed one
+	Rest   []string // every other argument, in order, passed on to each router
 }
 
 // ParseServeArgs reads the arguments after "serve". llama.cpp's defaults
@@ -25,7 +26,7 @@ func ParseServeArgs(args []string) (ServeArgs, error) {
 		arg := rest[0]
 		rest = rest[1:]
 		name, value, inline := strings.Cut(arg, "=")
-		if name != "--host" && name != "--port" {
+		if name != "--host" && name != "--port" && name != "--models-preset" {
 			a.Rest = append(a.Rest, arg)
 			continue
 		}
@@ -43,8 +44,12 @@ func ParseServeArgs(args []string) (ServeArgs, error) {
 }
 
 func (a *ServeArgs) setAddress(name, value string) error {
-	if name == "--host" {
+	switch name {
+	case "--host":
 		a.Host = value
+		return nil
+	case "--models-preset":
+		a.Preset = value
 		return nil
 	}
 	p, err := strconv.Atoi(value)
@@ -58,9 +63,13 @@ func (a *ServeArgs) setAddress(name, value string) error {
 // Address is where the switcher listens.
 func (a ServeArgs) Address() string { return joinHostPort(a.Host, a.Port) }
 
-// ForBackend returns the arguments for one router on a private local port.
-func (a ServeArgs) ForBackend(port int) []string {
+// ForBackend returns the arguments for one router on a private local port,
+// with the preset that this router gets ("" for none).
+func (a ServeArgs) ForBackend(port int, preset string) []string {
 	out := append([]string(nil), a.Rest...)
+	if preset != "" {
+		out = append(out, "--models-preset", preset)
+	}
 	return append(out, "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 }
 

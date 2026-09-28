@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/osolmaz/llamaenv/internal/config"
 	"github.com/osolmaz/llamaenv/internal/proc"
 )
 
@@ -31,6 +34,10 @@ type backend struct {
 	group  *proc.Group
 	out    io.Writer
 	errOut io.Writer
+	// preset is the runtime's own llama.cpp preset, and combined is where
+	// the switcher writes it together with the client's preset.
+	preset   string
+	combined string
 
 	mu      sync.Mutex
 	port    int
@@ -56,7 +63,12 @@ func (b *backend) startLocked(ctx context.Context, timeout time.Duration) error 
 		b.err = err
 		return err
 	}
-	args := append(append([]string(nil), b.launch.Prefix...), b.args.ForBackend(port)...)
+	preset, err := b.routerPreset()
+	if err != nil {
+		b.err = fmt.Errorf("runtime %s: %w", b.name, err)
+		return b.err
+	}
+	args := append(append([]string(nil), b.launch.Prefix...), b.args.ForBackend(port, preset)...)
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), b.launch.Program, args...) //nolint:gosec // G204: runs the llama program the user configured as a runtime
 	cmd.Stdout, cmd.Stderr = b.out, b.errOut
 	if err := b.group.Start(cmd); err != nil {
@@ -80,6 +92,63 @@ func (b *backend) startLocked(ctx context.Context, timeout time.Duration) error 
 		return b.err
 	}
 	return nil
+}
+
+// routerPreset returns the preset for this router. Without a runtime preset
+// it is the client's preset, unchanged. With one, and without a client preset,
+// it is the runtime preset itself. With both, the switcher lays the client's
+// preset over the runtime preset into one file, so the client's values win.
+func (b *backend) routerPreset() (string, error) {
+	client := b.args.Preset
+	if client == "" {
+		client = os.Getenv("LLAMA_ARG_MODELS_PRESET")
+	}
+	switch {
+	case b.preset == "":
+		return b.args.Preset, nil
+	case client == "":
+		if _, err := os.Stat(b.preset); err != nil {
+			return "", fmt.Errorf("preset: %w", err)
+		}
+		return b.preset, nil
+	}
+	return b.combined, b.writeCombined(client)
+}
+
+// writeCombined writes the runtime preset with the client's preset over it.
+func (b *backend) writeCombined(client string) error {
+	base, err := os.ReadFile(b.preset)
+	if err != nil {
+		return fmt.Errorf("preset: %w", err)
+	}
+	top, err := os.ReadFile(filepath.Clean(client))
+	if err != nil {
+		return fmt.Errorf("client preset: %w", err)
+	}
+	text, err := config.OverlayPreset(string(base), string(top))
+	if err != nil {
+		return fmt.Errorf("preset: combine %s with %s: %w", b.preset, client, err)
+	}
+	header := "; Written by llamaenv: " + b.preset + " with " + client + " over it.\n; Do not edit. It is written again at every start and reload.\n"
+	if err := os.MkdirAll(filepath.Dir(b.combined), 0o750); err != nil {
+		return err
+	}
+	// Write and rename, so a router never reads a half-written file.
+	tmp := b.combined + ".tmp"
+	if err := os.WriteFile(tmp, []byte(header+text), 0o600); err != nil { //nolint:gosec // G703: tmp is in this switcher's own state folder
+		return err
+	}
+	return os.Rename(tmp, b.combined)
+}
+
+// refreshPreset writes the combined preset again, before a reload, so the
+// router reads the client's latest preset.
+func (b *backend) refreshPreset() error {
+	if b.preset == "" {
+		return nil
+	}
+	_, err := b.routerPreset()
+	return err
 }
 
 // ensure restarts a stopped backend on demand, at most once every 10 seconds.

@@ -4,7 +4,6 @@ package install
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -114,16 +113,11 @@ func Uninstall(d config.Dirs, log func(string)) error {
 }
 
 func stopSwitcher(d config.Dirs, log func(string)) {
-	data, err := os.ReadFile(filepath.Join(d.State(), "switcher.json"))
-	if err != nil {
-		return
-	}
-	var st switcher.State
-	if json.Unmarshal(data, &st) != nil || st.PID == 0 || st.PID == os.Getpid() {
-		return
-	}
-	if p, err := os.FindProcess(st.PID); err == nil {
-		if p.Kill() == nil {
+	for _, st := range switcher.ReadStates(d.State()) {
+		if st.PID == 0 || st.PID == os.Getpid() {
+			continue
+		}
+		if p, err := os.FindProcess(st.PID); err == nil && p.Kill() == nil {
 			log(fmt.Sprintf("stopped the running switcher (pid %d)", st.PID))
 		}
 	}
