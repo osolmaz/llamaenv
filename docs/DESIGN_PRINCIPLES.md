@@ -102,12 +102,22 @@ See [how llama.cpp is configured](2026-09-28-llama-cpp-config.md) for its
 config layers and presets.
 
 llamaenv's own files MUST hold only llamaenv concepts: runtime sources, pins,
-and the model-to-runtime mapping.
+the model-to-runtime mapping, and the path of a runtime's preset.
 
 llama.cpp settings MUST live in a standard llama.cpp preset, with llama.cpp's
 format, key names, and meaning. llamaenv MUST pass such a preset to llama.cpp
 unchanged, and MUST NOT add its own keys to it. A preset that llamaenv uses
 MUST also work with `llama serve --models-preset` directly.
+
+A runtime's preset MUST go only to that runtime's router. The default router
+MUST get the client's arguments and preset unchanged.
+
+The router takes one `--models-preset`. When the client passes its own preset,
+llamaenv MAY write one combined file for the runtime's router: the runtime
+preset with the client's preset over it, key by key, so the client's values
+win. It MUST only copy text: no checks, no renamed keys, no added keys. It
+MUST write the file in its own state folder, and write it again before it
+passes on a reload.
 
 Where a llamaenv format looks like a llama.cpp format, it MUST NOT pretend to
 be one. Its file name and documentation MUST say that it is llamaenv's.
@@ -115,8 +125,9 @@ be one. Its file name and documentation MUST say that it is llamaenv's.
 ### 6. The model, not the code, decides
 
 Code MUST NOT name models or model families. A model maps to a runtime only
-through configuration: a local mapping, the model repository's own files, or a
-shared list. Settings for a model, such as its context size, MUST come from a
+through configuration: a local mapping or a shared list. (A `preset.ini` in a
+model repository cannot carry it: llama.cpp then treats the repository as a
+preset repository and downloads no model files.) Settings for a model, such as its context size, MUST come from a
 preset, not from code.
 
 ### 7. No new user interface
@@ -147,21 +158,19 @@ overwrite another instance's state.
 
 These exist on 2026-09-28 and MUST be fixed before a release.
 
-1. **Principle 5.** The plan put llama.cpp settings such as `parallel` and
-   `ctx-size` into `models.ini`, next to llamaenv's `runtime` key. They belong in
-   a separate, standard llama.cpp preset (`preset.ini`) that llamaenv passes on
-   unchanged and merges with the Llama app's preset.
-2. **Principle 5.** `models.ini` has `[section]` names like a llama.cpp preset,
-   but its matching rules differ: a section with only the repository name applies
-   to every quant, and names match regardless of case. It is llamaenv's format,
-   so the docs must say so plainly, or it must use a different file name.
-3. **Principle 10.** All switchers write one `state/switcher.json`. A second
-   server, such as a test server next to the Llama app's server, overwrites the
-   first one's state, and `llamaenv status` shows only the last one.
-4. **Principle 2.** `llamaenv install` restarts the Llama app with
+1. **Principle 2.** `llamaenv install` restarts the Llama app with
    `Start-Process`. From a session without a desktop, such as a remote shell, the
    app starts in that session instead of the user's desktop.
 
-Fixed on 2026-09-28: the web page was sent to a mapped runtime when its URL
-named a model (principle 3), and a download unloaded the other runtime's
-models (principle 3).
+Fixed on 2026-09-28:
+
+- The web page was sent to a mapped runtime when its URL named a model
+  (principle 3), and a download unloaded the other runtime's models
+  (principle 3).
+- llama.cpp settings sat in llamaenv's `models.ini`, and that file looked like
+  a llama.cpp preset but matched models by other rules (principle 5).
+  `models.ini` is gone: `runtimes.ini` has one `[runtime <name>]` section per
+  runtime with its `models` list, and settings live in a plain preset that the
+  `preset` key points to.
+- All switchers wrote one `state/switcher.json` (principle 10). Each switcher
+  now has its own `state/<port>/` folder, removed when it stops.

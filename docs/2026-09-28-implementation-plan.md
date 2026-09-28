@@ -7,6 +7,9 @@ tags: [llamaenv, llama-cpp, plan]
 
 # llamaenv implementation plan
 
+> Partly superseded: `models.ini` is gone, and a model repository cannot carry
+> a `preset.ini`. See [how llama.cpp is configured](2026-09-28-llama-cpp-config.md).
+
 > **Work in progress.** llamaenv is a stopgap. It may be deprecated, or its
 > idea absorbed into llama.cpp itself, for example as a per-model `runtime`
 > preset key. When that happens, llamaenv should be removed.

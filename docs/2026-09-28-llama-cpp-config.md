@@ -62,9 +62,13 @@ parallel = 1
 **llama.cpp has no fixed local place for per-model settings.** They exist only
 as a preset file at a path that someone passes, or on the Hub.
 
-Not verified yet: whether a `preset.ini` in a model's own repository, such as
-Prism's, applies by itself when that model is loaded as `<repo>:<quant>`. The
-docs show only a separate preset repository used as `repo:section`.
+A model repository cannot carry its own `preset.ini`: when a repository has one
+in its root, `-hf <repo>` downloads only that file and starts in router mode,
+and no model files (`common/download.cpp`, `common/arg.cpp`, master on
+2026-09-28). A Hub preset is therefore always a separate preset repository.
+
+`--models-preset` takes one path. A second one replaces the first. The
+environment variable `LLAMA_ARG_MODELS_PRESET` sets it too.
 
 ## Defaults when nothing is set
 
@@ -113,22 +117,32 @@ matters.
 llamaenv MUST NOT write llama.cpp's `config.ini`. It would change every model,
 including the officially supported ones (design principle 3).
 
-Settings for a mapped model are a plain llama.cpp router preset (design
-principle 5). Until the model developer ships them on the Hub, the setup for
-that model saves the preset in llamaenv's folder, because llama.cpp has no
-fixed local place for it. llamaenv passes it only to that model's runtime,
-combined with the Llama app's preset, whose values win.
+Settings for a mapped model are a plain llama.cpp preset (design principle 5).
+llama.cpp has no fixed local place for per-model settings, so `llamaenv preset`
+copies the preset into llamaenv's folder, unchanged. Only that runtime's router
+gets it:
 
-For Bonsai 2 27B, planned:
+- Without a client preset, the router gets the runtime preset itself.
+- With one, such as the Llama app's, the router gets a combined file in
+  `state/<port>/<runtime>.preset.ini`: the runtime preset with the client's
+  preset over it, key by key, so the client's values win. llamaenv writes it
+  again before it passes on a reload.
+- The default router gets the client's arguments and preset unchanged.
+
+The files for Bonsai 2 27B, from [`examples/bonsai`](../examples/bonsai):
 
 | File | Read by | Contents |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\llamaenv\models.ini` (Linux: `~/.config/llamaenv/models.ini`) | llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf]` with `runtime = prism` and `preset = presets\prism.ini` |
-| `%LOCALAPPDATA%\llamaenv\presets\prism.ini` (Linux: `~/.config/llamaenv/presets/prism.ini`) | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
+| `runtimes.ini` | llamaenv | `[runtime prism]` with the archive URLs, `models = prism-ml/Ternary-Bonsai-2-27B-gguf`, and `preset = presets/prism.ini` |
+| `runtimes.lock` | llamaenv | the SHA-256 of each archive, and of a preset that came from a URL |
+| `presets/prism.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
+| `state/<port>/prism.preset.ini` | llama.cpp, written by llamaenv | the combined preset, while the switcher runs |
 
-The preset also works on its own: `llama serve --models-preset prism.ini`.
-Later it moves to Prism's model repository on the Hub, and `models.ini` keeps
-only a pointer to it.
+The folder is `%LOCALAPPDATA%\llamaenv\` on Windows. On Linux, config files and
+presets are in `~/.config/llamaenv/`, and `state/` is in
+`~/.local/share/llamaenv/`.
 
-Status on 2026-09-28: the `preset` key and passing the preset on are not
-implemented yet.
+Tested on 2026-09-28 on Linux with Prism's build: with an app preset of
+`ctx-size = 16384`, Bonsai loaded with `--ctx-size 16384 --parallel 1`; after the
+app preset changed to 24576 and a reload, it loaded with 24576. The official
+router got the app preset unchanged.

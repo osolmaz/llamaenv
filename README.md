@@ -1,70 +1,81 @@
 # llamaenv
 
-llamaenv manages llama.cpp runtimes, next to the regular
+llamaenv is a runtime manager for llama.cpp that works next to the standard
 [Llama app](https://github.com/ggml-org/Llama-Windows) and
-[llama.app](https://llama.app) install. A runtime is an official llama.cpp
-version or a custom build, such as a model developer's fork. llamaenv runs each
-model with the runtime it needs, and it can switch the default runtime, like
-`pyenv` does for Python versions.
+[llama.app](https://llama.app) install. It runs each model with the llama.cpp
+build that the model needs, and every other model with the official build.
 
 Some models need a custom llama.cpp build until their support is upstream. An
-example is Prism ML's Bonsai 2 27B, whose ternary weights load only with Prism's
-llama.cpp fork. llamaenv sits in front of `llama serve`, sends requests for
-such a model to its custom build, and sends everything else to the official
-build. The Llama app and models that llama.cpp already supports keep working as
-before. Removing llamaenv leaves a normal, working Llama setup.
+example is Prism ML's Bonsai 2 27B, whose ternary weights load only with
+Prism's llama.cpp fork. With llamaenv, you download and select Bonsai in the
+Llama app or the llama.cpp web page as usual, and it runs on Prism's build.
+Officially supported models keep running on the official build. llamaenv
+switches between them when you select a model.
 
-llamaenv can also pin or switch llama.cpp versions: for example, keep one model
-on an older official version that works better for it, or try a newer version
-as the default. Without such a choice, llamaenv follows the official build that
-the standard installer manages.
+llamaenv can also pin or switch llama.cpp versions: keep one model on an older
+official version, or try a newer version as the default.
 
-llamaenv is also a working example of a feature that llama.cpp could have
-later: a per-model `runtime` key in its presets.
+> **Work in progress.** llamaenv is a stopgap until llama.cpp can do this
+> itself. When it can, remove llamaenv.
 
-> **Work in progress.** llamaenv is a stopgap. It may be deprecated, or its
-> idea absorbed into llama.cpp itself, for example as a per-model `runtime`
-> preset key. When that happens, llamaenv should be removed.
-
-Status: first implementation. Tested end to end on Linux (the official llama
-b11200 next to Prism's build, switching between an official model and Bonsai 2
-27B). Windows is the first target and comes next.
-
-llamaenv is peripheral by design. It stays out of the way of the standard
-llama.cpp path: the official installer, the official `llama` build, and the
-Llama app stay as they are, and llamaenv only steps in for models that need
-a custom build. If llamaenv fails or is removed, everything runs the
+llamaenv stays out of the way. The official installer, the official `llama`,
+and the Llama app stay as they are. Models without a mapping run exactly as
+without llamaenv. If llamaenv fails or is removed, everything runs the
 standard way.
 
-Platforms: Windows and Linux. Windows comes first.
+Platforms: Windows and Linux.
 
-## Use
+## Install
 
-Build it with Go 1.26: `go build -o llamaenv .`. Then:
+Build it with Go 1.26:
 
 ```sh
-llamaenv install                 # the official llama if missing, then the shim first on PATH
-llamaenv runtime add prism <folder with llama-server | archive URLs...>
-llamaenv map prism-ml/Ternary-Bonsai-2-27B-gguf prism
+go build -o llamaenv .
 ```
 
-Restart the Llama app, or run `llama serve` as usual. Bonsai now runs on
-Prism's build, and every other model on the official build. Select either one
-in the Llama app or the llama.cpp web page; llamaenv switches under the hood.
+`llamaenv install` puts a `llama` shim first on your user PATH, and installs
+the official `llama` from llama.app when it is missing. On Windows it also
+restarts the Llama app, so the app picks up the shim.
+
+## Set up a model
+
+Add the build that the model needs, map the model to it, and optionally give
+the build a llama.cpp preset with settings for the model:
 
 ```sh
-llamaenv list        # which model uses which runtime
-llamaenv status      # the running routers
+llamaenv runtime add prism <folder with llama-server | archive URLs...>
+llamaenv map prism-ml/Ternary-Bonsai-2-27B-gguf prism
+llamaenv preset prism prism.ini
+llamaenv install
+```
+
+A preset is a plain llama.cpp preset, the same file that
+`llama serve --models-preset` reads:
+
+```ini
+[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]
+ctx-size = 98304
+parallel = 1
+```
+
+Only that build's models get it. A context size that you set in the Llama app
+still wins over the preset.
+
+[`examples/bonsai`](examples/bonsai) has complete setup scripts for Windows and
+Linux, and a preset for Bonsai 2 27B.
+
+After setup, download the model in the Llama app, or run `llama serve` as
+usual.
+
+## Everyday commands
+
+```sh
+llamaenv list        # which model uses which runtime and preset
+llamaenv status      # the running switchers and their routers
 llamaenv versions    # official llama and runtime versions
+llamaenv use <name>  # a different default runtime; "official" goes back
+llamaenv unmap <model>
 llamaenv uninstall   # back to the plain standard setup
 ```
 
-Without any mapping, `llama serve` runs the official llama unchanged.
-
-## Docs
-
-- [Design principles](docs/DESIGN_PRINCIPLES.md): what llamaenv may and may not do
-- [How llama.cpp is configured](docs/2026-09-28-llama-cpp-config.md): config layers, presets, defaults, and where llamaenv fits
-- [Requirements](docs/2026-09-28-requirements.md)
-- [Implementation plan](docs/2026-09-28-implementation-plan.md)
-- [Spike findings](docs/2026-09-28-spike-findings.md)
+Downloaded model files stay in the Hugging Face cache when you uninstall.

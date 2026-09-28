@@ -1,6 +1,7 @@
 # AGENTS.md - llamaenv
 
 - You MUST read [the design principles](docs/DESIGN_PRINCIPLES.md) before you change behavior, config, or files. They say what llama.cpp and the Llama app own, and what llamaenv may do.
+- Read [how llama.cpp is configured](docs/2026-09-28-llama-cpp-config.md) before you touch presets or settings.
 - Status: first implementation. Follow the plan in `docs/`, and update it when a decision changes.
 - Before finishing a change, run these, as CI does:
   ```sh
