@@ -42,15 +42,11 @@ func SetPreset(c *config.Config, name, src string, log func(string)) (string, er
 func readPreset(c *config.Config, src string, log func(string)) ([]byte, error) {
 	path := src
 	if strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "http://") {
-		file, sum, err := download(c.Dirs.Data, src, log)
+		file, err := downloadPreset(c, src, log)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = os.Remove(file) }()
-		if want, ok := c.Lock.Get(src, "sha256"); ok && !strings.EqualFold(want, sum) {
-			return nil, fmt.Errorf("%s: SHA-256 %s does not match the pinned %s in runtimes.lock", src, sum, want)
-		}
-		c.Lock.Set(src, "sha256", sum)
 		path = file
 	}
 	st, err := os.Stat(path)
@@ -64,6 +60,21 @@ func readPreset(c *config.Config, src string, log func(string)) ([]byte, error) 
 		return nil, fmt.Errorf("%s is larger than %d bytes; a preset is a small INI file", src, maxPresetSize)
 	}
 	return os.ReadFile(filepath.Clean(path))
+}
+
+// downloadPreset downloads a preset and checks it against runtimes.lock. The
+// first download records its SHA-256; later downloads must match it.
+func downloadPreset(c *config.Config, url string, log func(string)) (string, error) {
+	file, sum, err := download(c.Dirs.Data, url, log)
+	if err != nil {
+		return "", err
+	}
+	if want, ok := c.Lock.Get(url, "sha256"); ok && !strings.EqualFold(want, sum) {
+		_ = os.Remove(file)
+		return "", fmt.Errorf("%s: SHA-256 %s does not match the pinned %s in runtimes.lock", url, sum, want)
+	}
+	c.Lock.Set(url, "sha256", sum)
+	return file, nil
 }
 
 // RemovePreset deletes a runtime's preset, when it has one.
