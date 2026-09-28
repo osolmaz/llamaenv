@@ -64,6 +64,7 @@ Without any mapping, `llama serve` runs the official llama unchanged.
 ## Docs
 
 - [Design principles](docs/DESIGN_PRINCIPLES.md): what llamaenv may and may not do
+- [How llama.cpp is configured](docs/2026-09-28-llama-cpp-config.md): config layers, presets, defaults, and where llamaenv fits
 - [Requirements](docs/2026-09-28-requirements.md)
 - [Implementation plan](docs/2026-09-28-implementation-plan.md)
 - [Spike findings](docs/2026-09-28-spike-findings.md)

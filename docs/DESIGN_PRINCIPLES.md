@@ -98,6 +98,9 @@ supported models MUST keep working.
 
 ### 5. Keep the formats apart
 
+See [how llama.cpp is configured](2026-09-28-llama-cpp-config.md) for its
+config layers and presets.
+
 llamaenv's own files MUST hold only llamaenv concepts: runtime sources, pins,
 and the model-to-runtime mapping.
 
