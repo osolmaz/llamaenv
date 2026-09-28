@@ -44,8 +44,8 @@ Models:
   list                        mappings and the runtime each one uses
 
 Presets (plain llama.cpp presets, used only by that runtime's router):
-  preset <runtime> <file | URL>
-  preset <runtime> --remove
+  preset add <runtime> <file.ini | URL>   one per model, kept under its file name
+  preset remove <runtime> <file.ini>
 
 Diagnosis:
   status                      the running switcher and its routers
@@ -297,7 +297,7 @@ func list(c *config.Config, _ []string, out io.Writer) error {
 				state = err.Error()
 			}
 		}
-		say(tw, "%s\t%s\t%s\t%s\n", e.Model, e.Runtime, orNone(c.Preset(e.Runtime)), state)
+		say(tw, "%s\t%s\t%s\t%s\n", e.Model, e.Runtime, orNone(strings.Join(c.PresetNames(e.Runtime), ", ")), state)
 	}
 	return tw.Flush()
 }
@@ -310,38 +310,35 @@ func orNone(s string) string {
 }
 
 func preset(c *config.Config, args []string, out io.Writer) error {
-	if len(args) != 2 {
-		return errors.New("usage: llamaenv preset <runtime> <file | URL | --remove>")
+	if len(args) != 3 || (args[0] != "add" && args[0] != "remove") {
+		return errors.New("usage: llamaenv preset add <runtime> <file.ini | URL>, or llamaenv preset remove <runtime> <file.ini>")
 	}
-	if args[1] == "--remove" {
-		return removePreset(c, args[0], out)
+	if args[0] == "remove" {
+		return removePreset(c, args[1], args[2], out)
 	}
-	name := args[0]
-	dst, err := runtimes.SetPreset(c, name, args[1], logTo(out))
+	runtime := args[1]
+	dst, err := runtimes.AddPreset(c, runtime, args[2], logTo(out))
 	if err != nil {
 		return err
 	}
 	if err := c.Save(); err != nil {
 		return err
 	}
-	say(out, "%s now uses the preset %s (restart the llama server to apply)\n", name, dst)
-	if c.Default() == name {
-		say(out, "note: %s is the default runtime, which serves every model, so it does not use a preset\n", name)
+	say(out, "%s now uses the preset %s (restart the llama server to apply)\n", runtime, dst)
+	if c.Default() == runtime {
+		say(out, "note: %s is the default runtime, which serves every model, so it does not use presets\n", runtime)
 	}
 	return nil
 }
 
-func removePreset(c *config.Config, name string, out io.Writer) error {
-	if c.Preset(name) == "" {
-		return fmt.Errorf("runtime %s has no preset", name)
-	}
-	if err := runtimes.RemovePreset(c, name); err != nil {
+func removePreset(c *config.Config, runtime, name string, out io.Writer) error {
+	if err := runtimes.RemovePreset(c, runtime, name); err != nil {
 		return err
 	}
 	if err := c.Save(); err != nil {
 		return err
 	}
-	say(out, "removed the preset of %s (restart the llama server to apply)\n", name)
+	say(out, "removed the preset %s of %s (restart the llama server to apply)\n", name, runtime)
 	return nil
 }
 

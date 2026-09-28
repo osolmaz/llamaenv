@@ -39,13 +39,13 @@ restarts the Llama app, so the app picks up the shim.
 
 ## Set up a model
 
-Add the build that the model needs, map the model to it, and optionally give
-the build a llama.cpp preset with settings for the model:
+Add the build that the model needs, map the model to it, and optionally add a
+llama.cpp preset with settings for the model:
 
 ```sh
 llamaenv runtime add prism <folder with llama-server | archive URLs...>
 llamaenv map prism-ml/Ternary-Bonsai-2-27B-gguf prism
-llamaenv preset prism prism.ini
+llamaenv preset add prism bonsai-2-27b.ini
 llamaenv install
 ```
 
@@ -58,8 +58,9 @@ ctx-size = 98304
 parallel = 1
 ```
 
-Only that build's models get it. A context size that you set in the Llama app
-still wins over the preset.
+Only that build's router gets it. Each model gets its own preset file, so
+setting up another model on the same build keeps this one. A context size that
+you set in the Llama app still wins over the preset.
 
 [`examples/bonsai`](examples/bonsai) has complete setup scripts for Windows and
 Linux, and a preset for Bonsai 2 27B.

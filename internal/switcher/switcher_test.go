@@ -556,7 +556,7 @@ func TestRuntimePresetGoesOnlyToItsRouter(t *testing.T) {
 	var state string
 	preset := writeFile(t, filepath.Join(t.TempDir(), "prism.ini"), runtimePreset)
 	start(t, func(o *Options) {
-		o.Presets = map[string]string{"prism": preset}
+		o.Presets = map[string][]string{"prism": {preset}}
 		state = o.StateDir
 	})
 	lists := routerLists(t, state)
@@ -575,7 +575,7 @@ func TestClientPresetIsLaidOverTheRuntimePreset(t *testing.T) {
 	client := writeFile(t, filepath.Join(dir, "app.ini"), clientPreset)
 	h := start(t, func(o *Options) {
 		o.Args.Preset = client
-		o.Presets = map[string]string{"prism": preset}
+		o.Presets = map[string][]string{"prism": {preset}}
 		state = o.StateDir
 	})
 	lists := routerLists(t, state)
@@ -601,13 +601,33 @@ func TestClientPresetIsLaidOverTheRuntimePreset(t *testing.T) {
 	}
 }
 
+func TestSeveralRuntimePresetsAreCombined(t *testing.T) {
+	var state string
+	dir := t.TempDir()
+	bonsaiPreset := writeFile(t, filepath.Join(dir, "bonsai.ini"), runtimePreset)
+	otherPreset := writeFile(t, filepath.Join(dir, "other.ini"), "[prism-ml/Other-gguf:Q4_0]\nctx-size = 4096\n")
+	start(t, func(o *Options) {
+		o.Presets = map[string][]string{"prism": {bonsaiPreset, otherPreset}}
+		state = o.StateDir
+	})
+	p := routerLists(t, state)["prism"]
+	if p.PresetFile != filepath.Join(state, "prism.preset.ini") {
+		t.Errorf("prism router preset file %q", p.PresetFile)
+	}
+	for _, want := range []string{bonsaiPreset, otherPreset, "ctx-size = 98304", "[prism-ml/Other-gguf:Q4_0]", "ctx-size = 4096"} {
+		if !strings.Contains(p.Preset, want) {
+			t.Errorf("combined preset lacks %q:\n%s", want, p.Preset)
+		}
+	}
+}
+
 func TestClientPresetFromTheEnvironment(t *testing.T) {
 	var state string
 	dir := t.TempDir()
 	preset := writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)
 	t.Setenv("LLAMA_ARG_MODELS_PRESET", writeFile(t, filepath.Join(dir, "env.ini"), clientPreset))
 	start(t, func(o *Options) {
-		o.Presets = map[string]string{"prism": preset}
+		o.Presets = map[string][]string{"prism": {preset}}
 		state = o.StateDir
 	})
 	if p := routerLists(t, state)["prism"]; !strings.Contains(p.Preset, "ctx-size = 32768") {
@@ -618,13 +638,13 @@ func TestClientPresetFromTheEnvironment(t *testing.T) {
 func TestBrokenPresetAffectsOnlyItsRuntime(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]func(o *Options){
-		"missing preset": func(o *Options) { o.Presets = map[string]string{"prism": filepath.Join(dir, "missing.ini")} },
+		"missing preset": func(o *Options) { o.Presets = map[string][]string{"prism": {filepath.Join(dir, "missing.ini")}} },
 		"broken preset": func(o *Options) {
-			o.Presets = map[string]string{"prism": writeFile(t, filepath.Join(dir, "broken.ini"), "not ini\n")}
+			o.Presets = map[string][]string{"prism": {writeFile(t, filepath.Join(dir, "broken.ini"), "not ini\n")}}
 			o.Args.Preset = writeFile(t, filepath.Join(dir, "app.ini"), clientPreset)
 		},
 		"missing client preset": func(o *Options) {
-			o.Presets = map[string]string{"prism": writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)}
+			o.Presets = map[string][]string{"prism": {writeFile(t, filepath.Join(dir, "prism.ini"), runtimePreset)}}
 			o.Args.Preset = filepath.Join(dir, "gone.ini")
 		},
 	}

@@ -14,7 +14,7 @@ Run runtime add prism "$release/llama-prism-b10743-adfffbe-bin-win-cuda-13.3-x64
 Run map prism-ml/Ternary-Bonsai-2-27B-gguf prism
 
 # 3. Bonsai's llama.cpp settings, a plain llama.cpp preset.
-Run preset prism (Join-Path $here "prism.ini")
+Run preset add prism (Join-Path $here "bonsai-2-27b.ini")
 
 # 4. The shim first on PATH (and the official llama when missing), then a
 #    restart of the Llama app, so it picks up the shim.

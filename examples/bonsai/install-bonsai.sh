@@ -14,7 +14,7 @@ release=https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10743-
 "$llamaenv" map prism-ml/Ternary-Bonsai-2-27B-gguf prism
 
 # 3. Bonsai's llama.cpp settings, a plain llama.cpp preset.
-"$llamaenv" preset prism "$here/prism.ini"
+"$llamaenv" preset add prism "$here/bonsai-2-27b.ini"
 
 # 4. The shim first on PATH, and the official llama when missing.
 "$llamaenv" install

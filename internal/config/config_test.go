@@ -150,22 +150,22 @@ func TestDirsForEachSystem(t *testing.T) {
 
 func TestMapAndUnmapEditTheRuntimeModelLists(t *testing.T) {
 	c := &Config{Dirs: Dirs{Config: "/cfg"}}
-	c.Runtimes, _ = ParseINI("; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npreset = presets/prism.ini\n")
+	c.Runtimes, _ = ParseINI("; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npresets = bonsai-2-27b.ini other.ini\n")
 	c.Map("prism-ml/Ternary-Bonsai-2-27B-gguf", "prism")
 	c.Map("a/b", "prism")
 	c.Map("c/d:Q4_0", Official)
 	c.Map("A/B", Official) // moves a/b, whatever its case
-	want := "; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npreset = presets/prism.ini\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n\n[runtime official]\nmodels = c/d:Q4_0 A/B\n"
+	want := "; my runtimes\n[runtime prism]\nlinux-arm64 = https://x/prism.tar.gz\npresets = bonsai-2-27b.ini other.ini\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\n\n[runtime official]\nmodels = c/d:Q4_0 A/B\n"
 	if got := c.Runtimes.String(); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 	if n := c.RuntimeNames(); len(n) != 1 || n[0] != "prism" {
 		t.Errorf("names %v", n)
 	}
-	if p := c.Preset("prism"); p != filepath.Join("/cfg", "presets", "prism.ini") {
-		t.Errorf("preset %q", p)
+	if p := c.Presets("prism"); len(p) != 2 || p[0] != filepath.Join("/cfg", "presets", "prism", "bonsai-2-27b.ini") || p[1] != filepath.Join("/cfg", "presets", "prism", "other.ini") {
+		t.Errorf("presets %q", p)
 	}
-	if c.Preset("official") != "" || c.Preset("missing") != "" || c.Runtime("") != nil {
+	if c.Presets("official") != nil || c.Presets("missing") != nil || c.Runtime("") != nil {
 		t.Error("preset for a runtime without one")
 	}
 }

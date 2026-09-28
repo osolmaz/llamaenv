@@ -298,7 +298,7 @@ func TestPresetFromAURLIsPinned(t *testing.T) {
 	_, err := Add(c, "prism", []string{dir}, func(string) {})
 	must(t, err)
 	url := srv.URL + "/preset.ini"
-	dst, err := SetPreset(c, "prism", url, func(string) {})
+	dst, err := AddPreset(c, "prism", url, func(string) {})
 	must(t, err)
 	if data, _ := os.ReadFile(dst); string(data) != preset { //nolint:gosec // the test's own file
 		t.Errorf("saved %q", data)
@@ -307,14 +307,27 @@ func TestPresetFromAURLIsPinned(t *testing.T) {
 		t.Errorf("not pinned: %q", sum)
 	}
 	files["/preset.ini"] = []byte(preset + "parallel = 4\n")
-	if _, err := SetPreset(c, "prism", url, func(string) {}); err == nil || !strings.Contains(err.Error(), "does not match") {
+	if _, err := AddPreset(c, "prism", url, func(string) {}); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Errorf("changed preset accepted: %v", err)
 	}
-	if _, err := SetPreset(c, "prism", srv.URL+"/big.ini", func(string) {}); err == nil || !strings.Contains(err.Error(), "larger than") {
+	if _, err := AddPreset(c, "prism", srv.URL+"/big.ini", func(string) {}); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Errorf("big preset accepted: %v", err)
 	}
-	if _, err := SetPreset(c, "prism", srv.URL+"/missing.ini", func(string) {}); err == nil {
+	if _, err := AddPreset(c, "prism", srv.URL+"/missing.ini", func(string) {}); err == nil {
 		t.Error("missing preset accepted")
 	}
-	must(t, RemovePreset(c, "missing"))
+	if err := RemovePreset(c, "prism", "other.ini"); err == nil {
+		t.Error("removed a preset that was never added")
+	}
+}
+
+func TestPresetNameIsTheFileName(t *testing.T) {
+	for _, bad := range []string{"https://x/y/", "/p/no-suffix", "/p/with space.ini", "/p/.ini"} {
+		if _, err := presetName(bad); err == nil {
+			t.Errorf("%q accepted as a preset name", bad)
+		}
+	}
+	if n, _ := presetName("https://x/bonsai-2-27b.ini?download=1"); n != "bonsai-2-27b.ini" {
+		t.Errorf("name from URL %q", n)
+	}
 }
