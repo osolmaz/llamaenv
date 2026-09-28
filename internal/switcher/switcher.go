@@ -154,12 +154,22 @@ func (s *Switcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.serve(w, r)
 }
 
-// serveSpecial answers the requests that concern every router: the model
-// list, the event stream, and a preset reload.
+// serveSpecial answers the requests that do not go by model: the web page,
+// the model list, the event stream, and a preset reload.
 func (s *Switcher) serveSpecial(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		return false
+	if !isAPI(r.URL.Path) {
+		// The web page and its files come from the default router, also when
+		// the page URL names a model ("/?model=..." from the Llama app): the
+		// page's files must match the page, and the page asks the API for
+		// the model itself.
+		s.def.serve(w, r)
+		return true
 	}
+	return r.Method == http.MethodGet && s.serveShared(w, r)
+}
+
+// serveShared answers the GET requests that concern every router.
+func (s *Switcher) serveShared(w http.ResponseWriter, r *http.Request) bool {
 	q := r.URL.Query()
 	switch {
 	case r.URL.Path == "/models/sse":
@@ -218,6 +228,24 @@ func (s *Switcher) owns(b *backend, model string) bool {
 	// The runtime is down: the default router keeps the model visible, and a
 	// load returns a clear error from backendFor.
 	return b == s.def
+}
+
+// apiPaths are the llama.cpp server paths that can name a model. Every other
+// path is the web page or one of its files.
+var apiPaths = []string{
+	"/v1/", "/models", "/props", "/slots", "/metrics", "/health", "/tools",
+	"/completion", "/completions", "/chat/completions", "/embedding", "/embeddings",
+	"/tokenize", "/detokenize", "/apply-template", "/infill", "/rerank", "/reranking",
+	"/lora-adapters",
+}
+
+func isAPI(path string) bool {
+	for _, p := range apiPaths {
+		if path == p || strings.HasPrefix(path, strings.TrimSuffix(p, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // usesModel says whether a request loads or runs a model. A download
