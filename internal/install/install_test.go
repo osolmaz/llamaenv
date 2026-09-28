@@ -112,3 +112,14 @@ func TestUninstallWithoutStateOrProfilesWorks(t *testing.T) {
 	d := config.Dirs{Config: filepath.Join(t.TempDir(), "c"), Data: filepath.Join(t.TempDir(), "d")}
 	must(t, Uninstall(d, func(string) {}))
 }
+
+func TestUninstallWithOneFolderForConfigAndData(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Join(t.TempDir(), "llamaenv")
+	must(t, os.MkdirAll(filepath.Join(dir, "bin"), 0o750))
+	must(t, os.WriteFile(filepath.Join(dir, "models.ini"), []byte("[a/b]\nruntime = x\n"), 0o600))
+	must(t, Uninstall(config.Dirs{Config: dir, Data: dir}, func(string) {}))
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("folder left behind")
+	}
+}

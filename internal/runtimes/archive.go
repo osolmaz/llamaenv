@@ -53,10 +53,11 @@ func installArchive(c *config.Config, stage, url string, log func(string)) error
 		return err
 	}
 	defer func() { _ = os.Remove(file) }()
-	if want, ok := c.Lock.Get("", url); ok && !strings.EqualFold(want, sum) {
+	// Each URL is a section: a URL may contain "=", which a key cannot.
+	if want, ok := c.Lock.Get(url, "sha256"); ok && !strings.EqualFold(want, sum) {
 		return fmt.Errorf("%s: SHA-256 %s does not match the pinned %s in runtimes.lock", url, sum, want)
 	}
-	c.Lock.Set("", url, sum)
+	c.Lock.Set(url, "sha256", sum)
 	if err := unpackFlat(file, stage); err != nil {
 		return fmt.Errorf("unpack %s: %w", url, err)
 	}
@@ -213,6 +214,9 @@ func untarEntry(h *tar.Header, r io.Reader, dest string) error {
 	case tar.TypeDir:
 		return os.MkdirAll(p, 0o750)
 	case tar.TypeSymlink:
+		if err := checkLink(dest, p, h.Linkname); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			return err
 		}
@@ -223,6 +227,19 @@ func untarEntry(h *tar.Header, r io.Reader, dest string) error {
 		return err
 	}
 	return nil // other entry types do not occur in llama.cpp builds
+}
+
+// checkLink refuses a symlink whose target leaves dest, so later entries
+// cannot be written through it to other places.
+func checkLink(dest, link, target string) error {
+	if filepath.IsAbs(target) {
+		return fmt.Errorf("archive link %q points to an absolute path", target)
+	}
+	resolved := filepath.Join(filepath.Dir(link), target)
+	if resolved != dest && !strings.HasPrefix(resolved, dest+string(filepath.Separator)) {
+		return fmt.Errorf("archive link %q points outside the folder", target)
+	}
+	return nil
 }
 
 // isProgramName marks Windows programs, since zip files made on Windows

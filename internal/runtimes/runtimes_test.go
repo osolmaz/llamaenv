@@ -123,7 +123,7 @@ func TestAddPinsHashesAndRefusesAChangedArchive(t *testing.T) {
 	c, files, urls := prismLike(t)
 	_, err := Add(c, "prism", urls, func(string) {})
 	must(t, err)
-	if sum, ok := c.Lock.Get("", urls[0]); !ok || len(sum) != 64 {
+	if sum, ok := c.Lock.Get(urls[0], "sha256"); !ok || len(sum) != 64 {
 		t.Errorf("no pinned hash: %q", sum)
 	}
 	files["/cudart.zip"] = zipOf(t, map[string]string{"cudart64_13.dll": "tampered"})
@@ -258,5 +258,32 @@ func TestCopyLimitedRefusesOversizedFiles(t *testing.T) {
 	}
 	if n, err := copyLimited(&b, strings.NewReader("1234"), 4); err != nil || n != 4 {
 		t.Errorf("file at the limit: %d %v", n, err)
+	}
+}
+
+func TestHashesArePinnedForURLsWithQueries(t *testing.T) {
+	files := map[string][]byte{"/b.tar.gz": tgzOf(t, entry{name: Exe("llama"), body: "x"})}
+	srv := serveFiles(t, files)
+	c := newConfig(t)
+	url := srv.URL + "/b.tar.gz?sig=abc&x=1"
+	_, err := Add(c, "b", []string{url}, func(string) {})
+	must(t, err)
+	must(t, c.Save())
+	reloaded, err := config.Load(c.Dirs)
+	must(t, err)
+	files["/b.tar.gz"] = tgzOf(t, entry{name: Exe("llama"), body: "tampered"})
+	if _, err := Add(reloaded, "b", []string{url}, func(string) {}); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("tampered archive behind a URL with a query: %v", err)
+	}
+}
+
+func TestUntarRefusesLinksThatLeaveTheFolder(t *testing.T) {
+	for _, target := range []string{"../../evil", "/etc/passwd"} {
+		data := tgzOf(t, entry{name: "r/x", link: target}, entry{name: "r/x/file", body: "x"})
+		archive := filepath.Join(t.TempDir(), "r.tar.gz")
+		must(t, os.WriteFile(archive, data, 0o600))
+		if err := unpackFlat(archive, t.TempDir()); err == nil {
+			t.Errorf("link to %q accepted", target)
+		}
 	}
 }

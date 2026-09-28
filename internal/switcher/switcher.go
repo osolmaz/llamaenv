@@ -194,11 +194,16 @@ func (s *Switcher) backendFor(ctx context.Context, model string) (*backend, erro
 	return b, nil
 }
 
+// runtimeOf returns the runtime router for a model, or "" for the default
+// router: also when the model is mapped to the runtime that is the default.
 func (s *Switcher) runtimeOf(model string) string {
 	if model == "" || s.opt.Owner == nil {
 		return ""
 	}
-	return s.opt.Owner(model)
+	if name := s.opt.Owner(model); name != s.opt.DefaultName {
+		return name
+	}
+	return ""
 }
 
 // owns says whether a backend should list and report a model.

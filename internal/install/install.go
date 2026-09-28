@@ -99,8 +99,12 @@ func Uninstall(d config.Dirs, log func(string)) error {
 	}
 	log("removed " + d.Bin() + " from the user PATH")
 	reportRestart(log)
-	if err := os.RemoveAll(d.Config); err != nil {
-		return err
+	// On Windows both are one folder, which removeDataDir handles, including
+	// the running llamaenv.exe inside it.
+	if d.Config != d.Data {
+		if err := os.RemoveAll(d.Config); err != nil {
+			return err
+		}
 	}
 	if err := removeDataDir(d.Data); err != nil {
 		return err
