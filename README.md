@@ -1,29 +1,37 @@
-# llamaswitch
+# llamaenv
 
-llamaswitch runs each model with the llama.cpp build that it needs, next to the
-regular [Llama app](https://github.com/ggml-org/Llama-Windows) and
-[llama.app](https://llama.app) install.
+llamaenv manages llama.cpp runtimes, next to the regular
+[Llama app](https://github.com/ggml-org/Llama-Windows) and
+[llama.app](https://llama.app) install. A runtime is an official llama.cpp
+version or a custom build, such as a model developer's fork. llamaenv runs each
+model with the runtime it needs, and it can switch the default runtime, like
+`pyenv` does for Python versions.
 
 Some models need a custom llama.cpp build until their support is upstream. An
 example is Prism ML's Bonsai 2 27B, whose ternary weights load only with Prism's
-llama.cpp fork. llamaswitch sits in front of `llama serve`, sends requests for
+llama.cpp fork. llamaenv sits in front of `llama serve`, sends requests for
 such a model to its custom build, and sends everything else to the official
 build. The Llama app and models that llama.cpp already supports keep working as
-before. Removing llamaswitch leaves a normal, working Llama setup.
+before. Removing llamaenv leaves a normal, working Llama setup.
 
-llamaswitch is also a working example of a feature that llama.cpp could have
+llamaenv can also pin or switch llama.cpp versions: for example, keep one model
+on an older official version that works better for it, or try a newer version
+as the default. Without such a choice, llamaenv follows the official build that
+the standard installer manages.
+
+llamaenv is also a working example of a feature that llama.cpp could have
 later: a per-model `runtime` key in its presets.
 
-> **Work in progress.** llamaswitch is a stopgap. It may be deprecated, or its
+> **Work in progress.** llamaenv is a stopgap. It may be deprecated, or its
 > idea absorbed into llama.cpp itself, for example as a per-model `runtime`
-> preset key. When that happens, llamaswitch should be removed.
+> preset key. When that happens, llamaenv should be removed.
 
 Status: planning. Nothing is implemented yet.
 
-llamaswitch is peripheral by design. It stays out of the way of the standard
+llamaenv is peripheral by design. It stays out of the way of the standard
 llama.cpp path: the official installer, the official `llama` build, and the
-Llama app stay as they are, and llamaswitch only steps in for models that need
-a custom build. If llamaswitch fails or is removed, everything runs the
+Llama app stay as they are, and llamaenv only steps in for models that need
+a custom build. If llamaenv fails or is removed, everything runs the
 standard way.
 
 Platforms: Windows and Linux. Windows comes first.

@@ -1,35 +1,35 @@
 ---
 date: 2026-09-28
 author: Onur Solmaz <2453968+osolmaz@users.noreply.github.com>
-title: llamaswitch implementation plan
-tags: [llamaswitch, llama-cpp, plan]
+title: llamaenv implementation plan
+tags: [llamaenv, llama-cpp, plan]
 ---
 
-# llamaswitch implementation plan
+# llamaenv implementation plan
 
-> **Work in progress.** llamaswitch is a stopgap. It may be deprecated, or its
+> **Work in progress.** llamaenv is a stopgap. It may be deprecated, or its
 > idea absorbed into llama.cpp itself, for example as a per-model `runtime`
-> preset key. When that happens, llamaswitch should be removed.
+> preset key. When that happens, llamaenv should be removed.
 
 This plan implements the [requirements](2026-09-28-requirements.md). Status:
 proposed, for review. Nothing is implemented.
 
-Every part of this plan follows the requirements' first principle: llamaswitch
+Every part of this plan follows the requirements' first principle: llamaenv
 is peripheral. It passes through everything it does not need to change, and it
 falls back to the standard llama.cpp path when it fails.
 
 ## Overview
 
-llamaswitch is one Go program, built as one static binary for Windows and
+llamaenv is one Go program, built as one static binary for Windows and
 Linux. The same binary has two roles:
 
-- **Shim:** installed as `llama` (`llama.exe` on Windows) in llamaswitch's own
+- **Shim:** installed as `llama` (`llama.exe` on Windows) in llamaenv's own
   folder, first on the user PATH.
-- **Manager:** run as `llamaswitch` for install, config, and status commands.
+- **Manager:** run as `llamaenv` for install, config, and status commands.
 
 ```
 Llama app (tray)
- └─ llama.exe serve --port 2276 ...      llamaswitch shim, first on PATH
+ └─ llama.exe serve --port 2276 ...      llamaenv shim, first on PATH
      └─ switcher, listens on :2276
          ├─ official llama serve  :<free port>   router for normal models
          └─ custom runtime        :<free port>   started per mapped model
@@ -40,14 +40,14 @@ Llama app (tray)
 - `llama serve ...` starts the switcher with the same arguments.
 - Every other command (`llama cli`, `llama --version`, ...) runs the real
   official `llama` with the same arguments, standard streams, and exit code.
-- The real `llama` is found on PATH after removing llamaswitch's own folder
+- The real `llama` is found on PATH after removing llamaenv's own folder
   from the search, or in llama.app's known install folder. Never itself.
 - If no official `llama` is found, the shim prints a clear error that tells the
-  user to run `llamaswitch install`, and exits with a nonzero code.
+  user to run `llamaenv install`, and exits with a nonzero code.
 - **Fallback:** if the switcher cannot start, for example because of a broken
   config or a missing runtime, the shim runs the real `llama serve` directly
   with the original arguments and logs why. The Llama app and all officially
-  supported models then work as without llamaswitch.
+  supported models then work as without llamaenv.
 
 ## 2. Switcher
 
@@ -61,6 +61,16 @@ Llama app (tray)
 - **Runtime backend:** one process per mapped model, started on demand, with
   the runtime's `llama-server` and the model's preset options as flags, on a
   free local port.
+
+### Default runtime
+
+- The default runtime serves every unmapped model. It must be a runtime with
+  the unified `llama` program, because it runs as the router.
+- `official` (the default): the official backend is the real `llama serve`.
+- Another default, such as `official-b11200`: that runtime's `llama serve`
+  replaces the official backend. The real `llama` stays untouched.
+- A runtime with only `llama-server`, such as Prism's current releases, can
+  serve mapped models but cannot be the default.
 
 ### Routing
 
@@ -117,18 +127,26 @@ The exact endpoints and JSON shapes come from the spike (section 7).
 
 Location:
 
-- Windows: `%LOCALAPPDATA%\llamaswitch\`
-- Linux: `~/.config/llamaswitch/`
+- Windows: `%LOCALAPPDATA%\llamaenv\`
+- Linux: `~/.config/llamaenv/`
 
 Files, all INI like llama.cpp presets:
 
-- `runtimes.ini`: runtime name, source, and version.
+- `llamaenv.ini`: general settings, such as the default runtime.
   ```ini
+  default = official
+  ```
+- `runtimes.ini`: runtime name, source, and version. `official` is built in
+  and needs no entry.
+  ```ini
+  [official-b11200]
+  source = hf://buckets/ggml-org/install.sh@b11200
+
   [prism-b10743]
   source = hf://buckets/<owner>/<bucket>@prism-b10743
   ```
 - `runtimes.lock`: per-platform SHA-256 of each downloaded runtime, written by
-  llamaswitch.
+  llamaenv.
 - `models.ini`: local overrides.
   ```ini
   [prism-ml/Ternary-Bonsai-2-27B-gguf]
@@ -138,7 +156,7 @@ Files, all INI like llama.cpp presets:
 
 Resolution order for a model: `models.ini`, then the model repo's `preset.ini`
 on the Hub, then the shared list. The result is cached with its source for
-`llamaswitch list`.
+`llamaenv list`.
 
 The files are read again when a model loads, so edits by hand need no restart.
 
@@ -147,30 +165,39 @@ and `logs/`.
 
 ## 5. Runtimes
 
+- **`official`:** the real `llama` on PATH, managed by the standard installer.
+  llamaenv never downloads, updates, or moves it.
+- **Official versions:** from ggml-org's llama.app bucket
+  (`hf://buckets/ggml-org/install.sh@<build>`), in the same layout as custom
+  builds, so one downloader handles both.
 - **Local path:** any folder with a `llama-server` (`llama-server.exe`).
-- **Bucket:** llama.app's layout. llamaswitch detects the platform and GPU the
+- **Bucket:** llama.app's layout. llamaenv detects the platform and GPU the
   same way llama.app's `install.sh` and `install.ps1` do, downloads the
   matching build, checks its hash, and unpacks it.
 - **First runtime:** Prism's fork. Prism's GitHub releases have Windows CUDA
   x64 and arm64 builds today, but not in llama.app's layout and not for Linux
-  arm64 with CUDA. For the first milestone, llamaswitch may use Prism's release
+  arm64 with CUDA. For the first milestone, llamaenv may use Prism's release
   archives directly, with pinned hashes. A bucket in llama.app's layout,
   built with `ggml-org/llama-install.sh` against Prism's fork, is the later
   source.
 
 ## 6. Commands
 
-- `llamaswitch install`: install the official `llama` if missing (llama.app's
+- `llamaenv install`: install the official `llama` if missing (llama.app's
   script), install the shim, and add its folder to the front of the user PATH.
   Then restart the Llama app if it runs.
-- `llamaswitch uninstall`: stop the switcher and backends, remove the PATH
+- `llamaenv uninstall`: stop the switcher and backends, remove the PATH
   entry and the folder, restart the Llama app. Offer to delete model files of
   mapped models.
-- `llamaswitch status`: backends, ports, loaded models.
-- `llamaswitch list`: every known model, its runtime, and the deciding layer.
-- `llamaswitch runtime add <name> <source>` / `runtime remove <name>`.
-- `llamaswitch map <repo[:quant]> <runtime>` / `unmap <repo[:quant]>`.
-- `llamaswitch trust <runtime>`.
+- `llamaenv status`: backends, ports, loaded models.
+- `llamaenv list`: every known model, its runtime, and the deciding layer.
+- `llamaenv runtime add <name> <source>` / `runtime remove <name>`.
+- `llamaenv map <repo[:quant]> <runtime>` / `unmap <repo[:quant]>`.
+- `llamaenv trust <runtime>`.
+- `llamaenv versions`: installed runtimes, and official versions available in
+  the llama.app bucket.
+- `llamaenv use <runtime>`: set the default runtime for unmapped models.
+  `llamaenv use official` goes back to the standard build.
 
 ## 7. Spike before the build
 
@@ -211,7 +238,7 @@ plan.
 - **Fallback:** a broken config or a missing runtime still starts the
   official `llama serve`, and officially supported models answer.
 - **End to end on Windows** with the Llama app and an NVIDIA GPU:
-  1. install llamaswitch; Bonsai and an official model both work and switch;
+  1. install llamaenv; Bonsai and an official model both work and switch;
   2. uninstall; the official model works;
   3. install again, delete the folder by hand; the official model works;
   4. update the official `llama`; both models still work.
@@ -232,8 +259,8 @@ plan.
 
 ## 11. Future path
 
-llamaswitch is meant to be temporary. If llama.cpp adds a per-model `runtime`
+llamaenv is meant to be temporary. If llama.cpp adds a per-model `runtime`
 preset key, and `llama` fetches and trusts runtimes itself, the same
-`models.ini` and model repo `preset.ini` files keep working, and llamaswitch
+`models.ini` and model repo `preset.ini` files keep working, and llamaenv
 should be deprecated and uninstalled. Until then, each runtime mapping is
 removed as soon as the model's support is upstream.
