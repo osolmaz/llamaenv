@@ -49,6 +49,7 @@ func TestUsesModel(t *testing.T) {
 		"POST /v1/chat/completions": true,
 		"POST /models/load":         true,
 		"POST /models/unload":       false,
+		"POST /models":              false, // a download
 		"POST /tokenize":            false,
 		"GET /props":                false,
 		"DELETE /models":            false,
