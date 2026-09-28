@@ -14,7 +14,19 @@ before. Removing llamaswitch leaves a normal, working Llama setup.
 llamaswitch is also a working example of a feature that llama.cpp could have
 later: a per-model `runtime` key in its presets.
 
+> **Work in progress.** llamaswitch is a stopgap. It may be deprecated, or its
+> idea absorbed into llama.cpp itself, for example as a per-model `runtime`
+> preset key. When that happens, llamaswitch should be removed.
+
 Status: planning. Nothing is implemented yet.
+
+llamaswitch is peripheral by design. It stays out of the way of the standard
+llama.cpp path: the official installer, the official `llama` build, and the
+Llama app stay as they are, and llamaswitch only steps in for models that need
+a custom build. If llamaswitch fails or is removed, everything runs the
+standard way.
+
+Platforms: Windows and Linux. Windows comes first.
 
 - [Requirements](docs/2026-09-28-requirements.md)
 - [Implementation plan](docs/2026-09-28-implementation-plan.md)

@@ -7,6 +7,10 @@ tags: [llamaswitch, llama-cpp, requirements]
 
 # llamaswitch requirements
 
+> **Work in progress.** llamaswitch is a stopgap. It may be deprecated, or its
+> idea absorbed into llama.cpp itself, for example as a per-model `runtime`
+> preset key. When that happens, llamaswitch should be removed.
+
 ## Problem
 
 Model developers often ship a custom llama.cpp build, usually a fork, until
@@ -30,6 +34,31 @@ PQ2_0 and PTQ1_0 weights load only with Prism's fork
 
 Ship llamaswitch next to the regular Llama app so that a model that needs a
 custom llama.cpp build runs with it automatically, and nothing else changes.
+
+## Principle: peripheral, minimal disruption
+
+This principle comes before every other requirement. When a design choice is
+unclear, choose the option that keeps users closer to the standard llama.cpp
+path.
+
+1. **The standard path stays the standard path.** Users install and use the
+   official llama.cpp build and the Llama app as documented. llamaswitch adds
+   one thing: the right build for the few models that need a custom one.
+2. **Step in only when needed.** For a model without a runtime mapping,
+   llamaswitch only passes traffic through. It adds no behavior, no settings,
+   and no user interface of its own.
+3. **Fail toward the standard path.** If llamaswitch cannot start its
+   switcher, it runs the official `llama serve` directly, so the Llama app and
+   all officially supported models still work. Only mapped models are then
+   unavailable, with a clear error.
+4. **No new habits.** Users keep the official commands, the Llama app, and the
+   llama.cpp web page. llamaswitch's own commands are for setup and diagnosis,
+   not for daily use.
+5. **Easy to remove.** Uninstalling or deleting llamaswitch returns the machine
+   to a plain standard setup with no leftovers to clean up.
+6. **Temporary by intent.** A runtime mapping exists only until the model's
+   support is upstream. Then the mapping is removed and the model runs on the
+   official build.
 
 ## Functional requirements
 
@@ -93,10 +122,13 @@ does not store the path, and skips a PATH entry whose file does not exist
 
 ## Platforms
 
-1. Windows x64 and arm64 with the Llama app: first target.
-2. Linux with `llama serve` from llama.app.
-3. macOS with Llama for Mac, after checking how that app finds `llama`: GUI
-   apps on macOS often do not see the shell PATH.
+Windows and Linux are both supported. Windows comes first, because it is the
+first use case.
+
+1. **Windows** x64 and arm64, with the Llama app and with `llama serve`.
+2. **Linux** x64 and arm64, with `llama serve` from llama.app.
+
+macOS is not in scope for now.
 
 ## Non-goals
 

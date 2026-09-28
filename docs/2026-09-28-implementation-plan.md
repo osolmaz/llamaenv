@@ -7,13 +7,21 @@ tags: [llamaswitch, llama-cpp, plan]
 
 # llamaswitch implementation plan
 
+> **Work in progress.** llamaswitch is a stopgap. It may be deprecated, or its
+> idea absorbed into llama.cpp itself, for example as a per-model `runtime`
+> preset key. When that happens, llamaswitch should be removed.
+
 This plan implements the [requirements](2026-09-28-requirements.md). Status:
 proposed, for review. Nothing is implemented.
 
+Every part of this plan follows the requirements' first principle: llamaswitch
+is peripheral. It passes through everything it does not need to change, and it
+falls back to the standard llama.cpp path when it fails.
+
 ## Overview
 
-llamaswitch is one Go program, built as one static binary for Windows, macOS,
-and Linux. The same binary has two roles:
+llamaswitch is one Go program, built as one static binary for Windows and
+Linux. The same binary has two roles:
 
 - **Shim:** installed as `llama` (`llama.exe` on Windows) in llamaswitch's own
   folder, first on the user PATH.
@@ -36,6 +44,10 @@ Llama app (tray)
   from the search, or in llama.app's known install folder. Never itself.
 - If no official `llama` is found, the shim prints a clear error that tells the
   user to run `llamaswitch install`, and exits with a nonzero code.
+- **Fallback:** if the switcher cannot start, for example because of a broken
+  config or a missing runtime, the shim runs the real `llama serve` directly
+  with the original arguments and logs why. The Llama app and all officially
+  supported models then work as without llamaswitch.
 
 ## 2. Switcher
 
@@ -95,9 +107,9 @@ The exact endpoints and JSON shapes come from the spike (section 7).
 - **Windows:** the switcher puts every backend into a job object with
   kill-on-close. When the Llama app stops the shim process, Windows stops all
   backends.
-- **macOS and Linux:** backends run in the switcher's process group. On
-  SIGTERM or SIGINT the switcher stops them and then exits. A backend also
-  exits when its parent dies (Linux `PR_SET_PDEATHSIG`; macOS polls the parent).
+- **Linux:** backends run in the switcher's process group. On SIGTERM or
+  SIGINT the switcher stops them and then exits. A backend also exits when its
+  parent dies (`PR_SET_PDEATHSIG`).
 - The switcher never writes the Llama app's PID file. The app writes the shim's
   PID itself, as it does for the official `llama`.
 
@@ -106,7 +118,6 @@ The exact endpoints and JSON shapes come from the spike (section 7).
 Location:
 
 - Windows: `%LOCALAPPDATA%\llamaswitch\`
-- macOS: `~/Library/Application Support/llamaswitch/`
 - Linux: `~/.config/llamaswitch/`
 
 Files, all INI like llama.cpp presets:
@@ -173,7 +184,6 @@ to fix these facts:
 3. How the app detects that the server stopped, and what it does then.
 4. How the app reads the version, and what it does with it.
 5. Whether the official router downloads a model that it cannot load.
-6. How Llama for Mac finds `llama`, for macOS support.
 
 The spike ends with a short findings document in `docs/`. It can change this
 plan.
@@ -181,13 +191,14 @@ plan.
 ## 8. Milestones
 
 1. **Spike** (section 7).
-2. **Switcher on Linux** with `llama serve`: fake backends in tests, then the
-   official build plus Prism's build with Bonsai on a Linux machine.
-3. **Windows:** shim, job objects, PATH install and uninstall, Prism's Windows
-   CUDA build; test with the Llama app on the Windows test machine.
+2. **Windows first:** switcher and shim with fake backends in tests; job
+   objects; PATH install and uninstall; fallback to the standard path; Prism's
+   Windows CUDA build. Then end-to-end tests with the Llama app on the Windows
+   test machine.
+3. **Linux:** process groups, PATH install, `llama serve` from llama.app, and
+   Prism's Linux build with Bonsai.
 4. **Mapping layers:** model repo `preset.ini` and the shared list, with
    trust.
-5. **macOS**, after the spike's answer on how the Mac app finds `llama`.
 
 ## 9. Tests
 
@@ -197,6 +208,8 @@ plan.
   router and a runtime, as in the Bonsai installer's tests. Routing, merged
   model list, load and unload, streaming, one model at a time, and cleanup
   when the switcher is stopped.
+- **Fallback:** a broken config or a missing runtime still starts the
+  official `llama serve`, and officially supported models answer.
 - **End to end on Windows** with the Llama app and an NVIDIA GPU:
   1. install llamaswitch; Bonsai and an official model both work and switch;
   2. uninstall; the official model works;
@@ -219,6 +232,8 @@ plan.
 
 ## 11. Future path
 
-If llama.cpp adds a per-model `runtime` preset key, and `llama` fetches and
-trusts runtimes itself, the same `models.ini` and model repo `preset.ini` files
-keep working, and llamaswitch can be uninstalled.
+llamaswitch is meant to be temporary. If llama.cpp adds a per-model `runtime`
+preset key, and `llama` fetches and trusts runtimes itself, the same
+`models.ini` and model repo `preset.ini` files keep working, and llamaswitch
+should be deprecated and uninstalled. Until then, each runtime mapping is
+removed as soon as the model's support is upstream.
