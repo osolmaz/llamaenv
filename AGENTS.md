@@ -2,7 +2,8 @@
 
 - You MUST read [the design principles](docs/DESIGN_PRINCIPLES.md) before you change behavior, config, or files. They say what llama.cpp and the Llama app own, and what llamaenv may do.
 - Read [how llama.cpp is configured](docs/2026-09-28-llama-cpp-config.md) before you touch presets or settings.
-- Status: first implementation. Follow the plan in `docs/`, and update it when a decision changes.
+- Status: alpha. There are no users to keep compatible. Change config, files, commands, and state in place, and delete what they replace. Do not add migrations, fallback readers, aliases, deprecation paths, or any other backward compatibility.
+- Follow the plan in `docs/`, and update it when a decision changes.
 - Before finishing a change, run these, as CI does:
   ```sh
   gofmt -l .                      # must print nothing
