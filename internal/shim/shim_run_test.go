@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/osolmaz/llamaenv/internal/runtimes"
 )
 
 // TestMain lets the test binary act as a fake official llama when
@@ -122,7 +124,7 @@ func TestBrokenConfigFallsBackToTheOfficialServe(t *testing.T) {
 func TestDefaultRuntimeWithoutUnifiedLlamaIsAConfigError(t *testing.T) {
 	_, home := fakeLlamaHome(t, 0)
 	dir := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(dir, "llama-server"), []byte("x"), 0o600))
+	must(t, os.WriteFile(filepath.Join(dir, runtimes.Exe("llama-server")), []byte("x"), 0o600))
 	must(t, os.WriteFile(filepath.Join(home, "runtimes.ini"), []byte("[prism]\npath = "+dir+"\n"), 0o600))
 	must(t, os.WriteFile(filepath.Join(home, "llamaenv.ini"), []byte("default = prism\n"), 0o600))
 	if _, _, err := options(os.Args[0], nil, func(string) {}); err == nil || !strings.Contains(err.Error(), "cannot serve every model") {
