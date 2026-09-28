@@ -1,0 +1,164 @@
+---
+date: 2026-09-28
+author: Onur Solmaz <2453968+osolmaz@users.noreply.github.com>
+title: llamaenv design principles
+tags: [llamaenv, llama-cpp, architecture, design]
+---
+
+# llamaenv design principles
+
+llamaenv adds one thing next to the standard llama.cpp setup: it runs a model
+with the llama.cpp build that the model needs. It MUST NOT replace, copy, or
+reinterpret behavior that llama.cpp, llama.app, or the Llama app already
+provide.
+
+llamaenv is a stopgap. It may be deprecated, or its idea absorbed into
+llama.cpp. Every design choice must keep it easy to remove.
+
+## Requirement terms
+
+`MUST` and `MUST NOT` mark requirements. `SHOULD` and `SHOULD NOT` mark the
+expected design unless the pull request gives a concrete reason for an
+exception. `MAY` marks an allowed choice.
+
+## The first design question
+
+Before adding a setting, file, field, endpoint, default, or behavior, a
+contributor MUST ask:
+
+> Does llama.cpp, llama.app, or the Llama app already represent or do this?
+
+The contributor MUST check the source of the pinned upstream version:
+`ggml-org/llama.cpp` (router, presets, server options), `ggml-org/llama-install.sh`
+(install layout), and `ggml-org/Llama-Windows` (how the app starts and talks to
+the server). The pull request MUST name the files it checked.
+
+If upstream already provides the behavior, llamaenv MUST use it as it is.
+llamaenv MUST NOT add an alias, a mirrored setting, a second default, or a
+wrapper that renames the same concept.
+
+## Who owns what
+
+llama.cpp owns:
+
+- serving models, the router, and the child process per model
+- model download, the Hugging Face cache, and the model list
+- every server option, such as `ctx-size`, `parallel`, and `n-gpu-layers`, and
+  their defaults
+- presets: the INI format, `--models-preset`, and `preset.ini` on the Hub
+- the web page and every API endpoint
+
+llama.app owns the install of the official `llama` and its location.
+
+The Llama app owns its user interface, its server lifecycle (start, stop,
+restart, adopt), its settings, and its choices such as a model's context size.
+
+llamaenv owns only:
+
+- the runtime sources, their pinned hashes, and the unpacked runtimes
+- the mapping from a model to a runtime
+- the shim, and the switcher that routes requests and merges lists
+- its own install, uninstall, and status
+
+## Principles
+
+### 1. External and peripheral
+
+llamaenv MUST stay outside llama.cpp and the Llama app. It MUST NOT patch,
+fork, or configure them beyond what their public interfaces allow. Users MUST
+keep the standard path: the official installer, the official `llama`, the
+Llama app, and the llama.cpp web page.
+
+### 2. Shadow, never replace
+
+llamaenv MUST reach the Llama app only by putting its own `llama` first on the
+user PATH. It MUST NOT edit, move, or replace the official `llama`, the Llama
+app's files, or its settings.
+
+The only exception is install and uninstall: they MAY stop and restart the
+Llama app and the server that it started, so that the app looks up `llama`
+again. They MAY read the app's PID file for that. They MUST NOT write it.
+
+### 3. Pass through, unchanged
+
+For a model without a runtime mapping, llamaenv MUST behave exactly like the
+official `llama serve`: the same arguments, environment, defaults, addresses,
+API answers, and web page. The web page and its files MUST always come from the
+default router. Routing by model applies to API requests only.
+
+When llamaenv adds nothing, it MUST add no process at all: without mappings,
+the shim runs the official `llama` directly.
+
+### 4. Fail toward the standard path
+
+When llamaenv cannot do its part, it MUST fall back to the official
+`llama serve` with the original arguments. A broken mapping or a missing
+runtime MUST affect only the mapped models, with a clear error. Officially
+supported models MUST keep working.
+
+### 5. Keep the formats apart
+
+llamaenv's own files MUST hold only llamaenv concepts: runtime sources, pins,
+and the model-to-runtime mapping.
+
+llama.cpp settings MUST live in a standard llama.cpp preset, with llama.cpp's
+format, key names, and meaning. llamaenv MUST pass such a preset to llama.cpp
+unchanged, and MUST NOT add its own keys to it. A preset that llamaenv uses
+MUST also work with `llama serve --models-preset` directly.
+
+Where a llamaenv format looks like a llama.cpp format, it MUST NOT pretend to
+be one. Its file name and documentation MUST say that it is llamaenv's.
+
+### 6. The model, not the code, decides
+
+Code MUST NOT name models or model families. A model maps to a runtime only
+through configuration: a local mapping, the model repository's own files, or a
+shared list. Settings for a model, such as its context size, MUST come from a
+preset, not from code.
+
+### 7. No new user interface
+
+llamaenv MUST NOT add a user interface, a new page, or new behavior in the web
+page or the Llama app. Its commands are for setup and diagnosis.
+
+### 8. Removable without leftovers
+
+After `llamaenv uninstall`, or after its folder is deleted by hand, the Llama
+app and every officially supported model MUST work as if llamaenv had never
+been installed. llamaenv MUST NOT store anything outside its own folders,
+except its one PATH entry.
+
+### 9. Pinned and trusted
+
+A downloaded runtime MUST be checked against a pinned SHA-256. A runtime that
+comes from a model repository or a shared list MUST run only after the user
+allowed it once.
+
+### 10. One instance, one state
+
+Several servers can run at the same time, for example the Llama app's server
+and a test server. Each llamaenv switcher MUST keep its own state, and MUST NOT
+overwrite another instance's state.
+
+## Known violations
+
+These exist on 2026-09-28 and MUST be fixed before a release.
+
+1. **Principle 5.** The plan put llama.cpp settings such as `parallel` and
+   `ctx-size` into `models.ini`, next to llamaenv's `runtime` key. They belong in
+   a separate, standard llama.cpp preset (`preset.ini`) that llamaenv passes on
+   unchanged and merges with the Llama app's preset.
+2. **Principle 5.** `models.ini` has `[section]` names like a llama.cpp preset,
+   but its matching rules differ: a section with only the repository name applies
+   to every quant, and names match regardless of case. It is llamaenv's format,
+   so the docs must say so plainly, or it must use a different file name.
+3. **Principle 10.** All switchers write one `state/switcher.json`. A second
+   server, such as a test server next to the Llama app's server, overwrites the
+   first one's state, and `llamaenv status` shows only the last one.
+4. **Principle 2.** `llamaenv install` restarts the Llama app with
+   `Start-Process`. From a session without a desktop, such as a remote shell, the
+   app starts in that session instead of the user's desktop.
+
+Fixed on 2026-09-28: the web page was sent to a mapped runtime when its URL
+named a model (principle 3), and a download unloaded the other runtime's
+models (principle 3).

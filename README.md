@@ -63,6 +63,7 @@ Without any mapping, `llama serve` runs the official llama unchanged.
 
 ## Docs
 
+- [Design principles](docs/DESIGN_PRINCIPLES.md): what llamaenv may and may not do
 - [Requirements](docs/2026-09-28-requirements.md)
 - [Implementation plan](docs/2026-09-28-implementation-plan.md)
 - [Spike findings](docs/2026-09-28-spike-findings.md)
