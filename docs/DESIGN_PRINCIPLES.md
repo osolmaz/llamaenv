@@ -102,20 +102,23 @@ See [how llama.cpp is configured](2026-09-28-llama-cpp-config.md) for its
 config layers and presets.
 
 llamaenv's own files MUST hold only llamaenv concepts: runtime sources, pins,
-the model-to-runtime mapping, and the path of a runtime's preset.
+the model-to-runtime mapping, and the names of a runtime's presets.
 
 llama.cpp settings MUST live in a standard llama.cpp preset, with llama.cpp's
 format, key names, and meaning. llamaenv MUST pass such a preset to llama.cpp
 unchanged, and MUST NOT add its own keys to it. A preset that llamaenv uses
 MUST also work with `llama serve --models-preset` directly.
 
-A runtime's preset MUST go only to that runtime's router. The default router
+A runtime's presets MUST go only to that runtime's router. Each model's
+settings SHOULD be their own preset file, so that setting up one model never
+changes another. The default router
 MUST get the client's arguments and preset unchanged.
 
 The router takes one `--models-preset`. When the client passes its own preset,
-llamaenv MAY write one combined file for the runtime's router: the runtime
-preset with the client's preset over it, key by key, so the client's values
-win. It MUST only copy text: no checks, no renamed keys, no added keys. It
+or the runtime has several presets, llamaenv MAY write one combined file for
+the runtime's router: the runtime presets in the order they were added, and
+the client's preset over them, key by key, so the client's values win. It
+MUST only copy text: no checks, no renamed keys, no added keys. It
 MUST write the file in its own state folder, and write it again before it
 passes on a reload.
 
@@ -171,6 +174,6 @@ Fixed on 2026-09-28:
   a llama.cpp preset but matched models by other rules (principle 5).
   `models.ini` is gone: `runtimes.ini` has one `[runtime <name>]` section per
   runtime with its `models` list, and settings live in a plain preset that the
-  `preset` key points to.
+  `presets` key lists, one file per model.
 - All switchers wrote one `state/switcher.json` (principle 10). Each switcher
   now has its own `state/<port>/` folder, removed when it stops.

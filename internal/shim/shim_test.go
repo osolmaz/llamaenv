@@ -100,21 +100,21 @@ func TestMappedRuntimeGetsItsPresetButTheDefaultDoesNot(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, runtimes.Exe("llama")), "x")
 	write(t, filepath.Join(dir, runtimes.Exe("llama-server")), "x")
-	write(t, filepath.Join(home, "runtimes.ini"), "[runtime prism]\npath = "+dir+"\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\npreset = presets/prism.ini\n\n"+
-		"[runtime pinned]\npath = "+dir+"\npreset = presets/pinned.ini\n")
+	write(t, filepath.Join(home, "runtimes.ini"), "[runtime prism]\npath = "+dir+"\nmodels = prism-ml/Ternary-Bonsai-2-27B-gguf\npresets = bonsai-2-27b.ini\n\n"+
+		"[runtime pinned]\npath = "+dir+"\npresets = x.ini\n")
 	write(t, filepath.Join(home, "llamaenv.ini"), "default = pinned\n")
 	var logs []string
 	opt, needed, err := options("/usr/bin/llama", []string{"--port", "2276"}, func(s string) { logs = append(logs, s) })
 	if err != nil || !needed {
 		t.Fatalf("needed %v, err %v", needed, err)
 	}
-	if got := opt.Presets["prism"]; got != filepath.Join(home, "presets", "prism.ini") || len(opt.Presets) != 1 {
+	if got := opt.Presets["prism"]; len(got) != 1 || got[0] != filepath.Join(home, "presets", "prism", "bonsai-2-27b.ini") || len(opt.Presets) != 1 {
 		t.Errorf("presets %v", opt.Presets)
 	}
 	if opt.StateDir != filepath.Join(home, "state", "2276") {
 		t.Errorf("state dir %s", opt.StateDir)
 	}
-	if !strings.Contains(strings.Join(logs, "\n"), "its preset is not used") {
+	if !strings.Contains(strings.Join(logs, "\n"), "its presets are not used") {
 		t.Errorf("logs %v", logs)
 	}
 }

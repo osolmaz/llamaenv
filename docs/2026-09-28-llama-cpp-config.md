@@ -115,25 +115,28 @@ running.
 llamaenv MUST NOT write llama.cpp's `config.ini`. It would change every model,
 including the officially supported ones (design principle 3).
 
-Settings for a mapped model are a plain llama.cpp preset (design principle 5).
-llama.cpp has no fixed local place for per-model settings, so `llamaenv preset`
-copies the preset into llamaenv's folder, unchanged. Only that runtime's router
-gets it:
+Settings for a mapped model are a plain llama.cpp preset (design principle 5),
+one file per model. llama.cpp has no fixed local place for per-model settings,
+so `llamaenv preset add <runtime> <file>` copies the file into
+`presets/<runtime>/`, unchanged and under its own name. Setting up a second
+model on the same runtime adds a second file and keeps the first. Only that
+runtime's router gets them:
 
-- Without a client preset, the router gets the runtime preset itself.
-- With one, such as the Llama app's, the router gets a combined file in
-  `state/<port>/<runtime>.preset.ini`: the runtime preset with the client's
-  preset over it, key by key, so the client's values win. llamaenv writes it
-  again before it passes on a reload.
+- With one preset and no client preset, the router gets that file itself.
+- Otherwise, for example with the Llama app's preset, the router gets a
+  combined file in `state/<port>/<runtime>.preset.ini`: the runtime's presets
+  in the order they were added, and the client's preset over them, key by key,
+  so the client's values win. llamaenv writes it again before it passes on a
+  reload.
 - The default router gets the client's arguments and preset unchanged.
 
 The files for Bonsai 2 27B, from [`examples/bonsai`](../examples/bonsai):
 
 | File | Read by | Contents |
 | --- | --- | --- |
-| `runtimes.ini` | llamaenv | `[runtime prism]` with the archive URLs, `models = prism-ml/Ternary-Bonsai-2-27B-gguf`, and `preset = presets/prism.ini` |
+| `runtimes.ini` | llamaenv | `[runtime prism]` with the archive URLs, `models = prism-ml/Ternary-Bonsai-2-27B-gguf`, and `presets = bonsai-2-27b.ini` |
 | `runtimes.lock` | llamaenv | the SHA-256 of each archive, and of a preset that came from a URL |
-| `presets/prism.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
+| `presets/prism/bonsai-2-27b.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
 | `state/<port>/prism.preset.ini` | llama.cpp, written by llamaenv | the combined preset, while the switcher runs |
 
 The folder is `%LOCALAPPDATA%\llamaenv\` on Windows. On Linux, config files and

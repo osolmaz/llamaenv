@@ -83,7 +83,7 @@ func options(real string, serveArgs []string, logf func(string)) (switcher.Optio
 		Default:     switcher.Launch{Program: real, Prefix: []string{"serve"}},
 		DefaultName: config.Official,
 		Runtimes:    map[string]switcher.Launch{},
-		Presets:     map[string]string{},
+		Presets:     map[string][]string{},
 		Unavailable: map[string]error{},
 		Exclusive:   c.Exclusive(),
 		StateDir:    filepath.Join(dirs.State(), strconv.Itoa(sa.Port)),
@@ -101,8 +101,8 @@ func options(real string, serveArgs []string, logf func(string)) (switcher.Optio
 	if err := setDefault(c, &opt); err != nil {
 		return opt, false, err
 	}
-	if c.Preset(opt.DefaultName) != "" {
-		logf("the default runtime " + opt.DefaultName + " serves every model, so its preset is not used")
+	if len(c.Presets(opt.DefaultName)) > 0 {
+		logf("the default runtime " + opt.DefaultName + " serves every model, so its presets are not used")
 	}
 	addRuntimes(c, mappings, &opt)
 	return opt, true, nil
@@ -152,7 +152,7 @@ func addRuntimes(c *config.Config, mappings []config.Mapping, opt *switcher.Opti
 		}
 		prog, prefix := rt.Launch()
 		opt.Runtimes[name] = switcher.Launch{Program: prog, Prefix: prefix}
-		if p := c.Preset(name); p != "" {
+		if p := c.Presets(name); len(p) > 0 {
 			opt.Presets[name] = p
 		}
 	}

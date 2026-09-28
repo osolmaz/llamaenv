@@ -34,7 +34,7 @@ type Options struct {
 	// Runtimes are the other routers, by runtime name.
 	Runtimes map[string]Launch
 	// Presets are the runtimes' own llama.cpp presets, by runtime name.
-	Presets map[string]string
+	Presets map[string][]string
 	// Owner returns the runtime mapped to a model ID, or "".
 	Owner func(modelID string) string
 	// Unavailable explains mapped runtimes that could not be resolved.
@@ -88,7 +88,7 @@ func newSwitcher(opt Options, group *proc.Group) *Switcher {
 	s.def = &backend{name: opt.DefaultName, launch: opt.Default, args: opt.Args, group: group, out: opt.Stdout, errOut: opt.Stderr}
 	for name, l := range opt.Runtimes {
 		pw := prefixWriter(opt.Stderr, "["+name+"] ")
-		b := &backend{name: name, launch: l, args: opt.Args, group: group, out: pw, errOut: pw, preset: opt.Presets[name]}
+		b := &backend{name: name, launch: l, args: opt.Args, group: group, out: pw, errOut: pw, presets: opt.Presets[name]}
 		b.combined = filepath.Join(opt.StateDir, name+".preset.ini")
 		s.runtimes[name] = b
 	}

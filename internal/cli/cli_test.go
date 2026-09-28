@@ -191,67 +191,75 @@ func TestServeCommandPassesTheOfficialExitCode(t *testing.T) {
 	e.fails("", "serve")
 }
 
-func TestPresetIsCopiedUnchangedAndKeptOnReAdd(t *testing.T) {
+func TestPresetsAreCopiedUnchangedPerModel(t *testing.T) {
 	e := setup(t)
 	model := "prism-ml/Ternary-Bonsai-2-27B-gguf"
 	text := "; Bonsai on an RTX 3080\n[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]\nctx-size = 98304\nparallel = 1\n"
-	src := filepath.Join(t.TempDir(), "prism.ini")
-	if err := os.WriteFile(src, []byte(text), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	e.fails("unknown runtime", "preset", "prism", src)
-	e.fails("only an added runtime", "preset", "official", src)
+	dir := t.TempDir()
+	bonsai := e.write(filepath.Join(dir, "bonsai-2-27b.ini"), text)
+	other := e.write(filepath.Join(dir, "other.ini"), "[prism-ml/Other-gguf:Q4_0]\nctx-size = 4096\n")
+	e.fails("unknown runtime", "preset", "add", "prism", bonsai)
+	e.fails("only an added runtime", "preset", "add", "official", bonsai)
 	e.ok("runtime", "add", "prism", e.runtimeDir("llama-server"))
 	e.ok("map", model, "prism")
-	if out := e.ok("preset", "prism", src); !strings.Contains(out, "now uses the preset") {
-		t.Errorf("preset: %s", out)
+	if out := e.ok("preset", "add", "prism", bonsai); !strings.Contains(out, "now uses the preset") {
+		t.Errorf("preset add: %s", out)
 	}
-	saved := filepath.Join(e.home, "presets", "prism.ini")
+	e.ok("preset", "add", "prism", other)
+	e.ok("preset", "add", "prism", bonsai) // again: replaced, not listed twice
+	saved := filepath.Join(e.home, "presets", "prism", "bonsai-2-27b.ini")
 	if got := e.read(saved); got != text {
 		t.Errorf("preset changed on copy:\n%s", got)
 	}
-	// Adding the runtime again, for example a newer build, keeps its models and preset.
+	// Adding the runtime again, for example a newer build, keeps its models and presets.
 	e.ok("runtime", "add", "prism", e.runtimeDir("llama-server"))
 	ini := e.read(filepath.Join(e.home, "runtimes.ini"))
-	for _, want := range []string{"[runtime prism]", "models = " + model, "preset = presets/prism.ini"} {
+	for _, want := range []string{"[runtime prism]", "models = " + model, "presets = bonsai-2-27b.ini other.ini\n"} {
 		if !strings.Contains(ini, want) {
 			t.Errorf("runtimes.ini lacks %q:\n%s", want, ini)
 		}
 	}
-	if out := e.ok("list"); !strings.Contains(out, saved) {
-		t.Errorf("list does not show the preset: %s", out)
+	if out := e.ok("list"); !strings.Contains(out, "bonsai-2-27b.ini, other.ini") {
+		t.Errorf("list does not show the presets: %s", out)
 	}
-	e.ok("preset", "prism", "--remove")
-	if _, err := os.Stat(saved); !os.IsNotExist(err) {
-		t.Error("preset file left after --remove")
+	e.ok("preset", "remove", "prism", "other.ini")
+	if _, err := os.Stat(filepath.Join(e.home, "presets", "prism", "other.ini")); !os.IsNotExist(err) {
+		t.Error("preset file left after remove")
 	}
-	e.fails("has no preset", "preset", "prism", "--remove")
-	e.ok("preset", "prism", src)
+	e.fails("has no preset", "preset", "remove", "prism", "other.ini")
+	e.ok("preset", "remove", "prism", "bonsai-2-27b.ini")
+	if strings.Contains(e.read(filepath.Join(e.home, "runtimes.ini")), "presets") {
+		t.Error("empty presets key kept")
+	}
+	e.ok("preset", "add", "prism", bonsai)
 	e.ok("unmap", model)
 	e.ok("runtime", "remove", "prism")
-	if _, err := os.Stat(saved); !os.IsNotExist(err) {
-		t.Error("preset file left after runtime remove")
+	if _, err := os.Stat(filepath.Join(e.home, "presets", "prism")); !os.IsNotExist(err) {
+		t.Error("presets folder left after runtime remove")
 	}
 }
 
 func TestPresetErrors(t *testing.T) {
 	e := setup(t)
 	e.fails("usage", "preset", "prism")
+	e.fails("usage", "preset", "set", "prism", "x.ini")
 	e.ok("runtime", "add", "prism", e.runtimeDir("llama"))
-	bad := filepath.Join(t.TempDir(), "bad.ini")
-	if err := os.WriteFile(bad, []byte("not ini\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	e.fails("not a llama.cpp preset", "preset", "prism", bad)
-	e.fails("does not exist", "preset", "prism", filepath.Join(t.TempDir(), "missing.ini"))
-	good := filepath.Join(t.TempDir(), "good.ini")
-	if err := os.WriteFile(good, []byte("[*]\nparallel = 1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	dir := t.TempDir()
+	e.fails("not a llama.cpp preset", "preset", "add", "prism", e.write(filepath.Join(dir, "bad.ini"), "not ini\n"))
+	e.fails("does not exist", "preset", "add", "prism", filepath.Join(dir, "missing.ini"))
+	e.fails("must end in .ini", "preset", "add", "prism", e.write(filepath.Join(dir, "preset.txt"), "[*]\n"))
 	e.ok("use", "prism")
-	if out := e.ok("preset", "prism", good); !strings.Contains(out, "does not use a preset") {
+	if out := e.ok("preset", "add", "prism", e.write(filepath.Join(dir, "good.ini"), "[*]\nparallel = 1\n")); !strings.Contains(out, "does not use presets") {
 		t.Errorf("no note for the default runtime: %s", out)
 	}
+}
+
+func (e *env) write(path, text string) string {
+	e.t.Helper()
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	return path
 }
 
 func (e *env) read(path string) string {

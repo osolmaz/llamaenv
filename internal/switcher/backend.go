@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,9 +35,9 @@ type backend struct {
 	group  *proc.Group
 	out    io.Writer
 	errOut io.Writer
-	// preset is the runtime's own llama.cpp preset, and combined is where
-	// the switcher writes it together with the client's preset.
-	preset   string
+	// presets are the runtime's own llama.cpp presets, and combined is
+	// where the switcher writes them together with the client's preset.
+	presets  []string
 	combined string
 
 	mu      sync.Mutex
@@ -94,42 +95,46 @@ func (b *backend) startLocked(ctx context.Context, timeout time.Duration) error 
 	return nil
 }
 
-// routerPreset returns the preset for this router. Without a runtime preset
-// it is the client's preset, unchanged. With one, and without a client preset,
-// it is the runtime preset itself. With both, the switcher lays the client's
-// preset over the runtime preset into one file, so the client's values win.
+// routerPreset returns the preset for this router. Without runtime presets
+// it is the client's preset, unchanged. With one runtime preset and no client
+// preset, it is that file itself. Otherwise the switcher lays the runtime
+// presets over each other, in the order they were added, and the client's
+// preset over them, into one file: the client's values win.
 func (b *backend) routerPreset() (string, error) {
 	client := b.args.Preset
 	if client == "" {
 		client = os.Getenv("LLAMA_ARG_MODELS_PRESET")
 	}
 	switch {
-	case b.preset == "":
+	case len(b.presets) == 0:
 		return b.args.Preset, nil
-	case client == "":
-		if _, err := os.Stat(b.preset); err != nil {
+	case len(b.presets) == 1 && client == "":
+		if _, err := os.Stat(b.presets[0]); err != nil {
 			return "", fmt.Errorf("preset: %w", err)
 		}
-		return b.preset, nil
+		return b.presets[0], nil
 	}
 	return b.combined, b.writeCombined(client)
 }
 
-// writeCombined writes the runtime preset with the client's preset over it.
+// writeCombined writes the runtime presets with the client's preset over them.
 func (b *backend) writeCombined(client string) error {
-	base, err := os.ReadFile(b.preset)
-	if err != nil {
-		return fmt.Errorf("preset: %w", err)
+	sources := append([]string(nil), b.presets...)
+	if client != "" {
+		sources = append(sources, client)
 	}
-	top, err := os.ReadFile(filepath.Clean(client))
-	if err != nil {
-		return fmt.Errorf("client preset: %w", err)
+	text := ""
+	for _, src := range sources {
+		data, err := os.ReadFile(filepath.Clean(src))
+		if err != nil {
+			return fmt.Errorf("preset: %w", err)
+		}
+		if text, err = config.OverlayPreset(text, string(data)); err != nil {
+			return fmt.Errorf("preset: combine %s: %w", src, err)
+		}
 	}
-	text, err := config.OverlayPreset(string(base), string(top))
-	if err != nil {
-		return fmt.Errorf("preset: combine %s with %s: %w", b.preset, client, err)
-	}
-	header := "; Written by llamaenv: " + b.preset + " with " + client + " over it.\n; Do not edit. It is written again at every start and reload.\n"
+	header := "; Written by llamaenv from, in order, each over the one before:\n;   " +
+		strings.Join(sources, "\n;   ") + "\n; Do not edit. It is written again at every start and reload.\n"
 	if err := os.MkdirAll(filepath.Dir(b.combined), 0o750); err != nil {
 		return err
 	}
@@ -144,7 +149,7 @@ func (b *backend) writeCombined(client string) error {
 // refreshPreset writes the combined preset again, before a reload, so the
 // router reads the client's latest preset.
 func (b *backend) refreshPreset() error {
-	if b.preset == "" {
+	if len(b.presets) == 0 {
 		return nil
 	}
 	_, err := b.routerPreset()

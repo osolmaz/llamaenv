@@ -153,12 +153,12 @@ func addArchives(c *config.Config, name string, urls []string, log func(string))
 	return rt, nil
 }
 
-// setSource replaces a runtime's sources and keeps its models and preset.
+// setSource replaces a runtime's sources and keeps its models and presets.
 func setSource(c *config.Config, name, key, value string) {
 	sec := config.RuntimeSection(name)
 	kept := map[string]string{}
 	if s := c.Runtime(name); s != nil {
-		for _, k := range []string{"models", "preset"} {
+		for _, k := range []string{"models", "presets"} {
 			if v, ok := s.Get(k); ok {
 				kept[k] = v
 			}
@@ -166,7 +166,7 @@ func setSource(c *config.Config, name, key, value string) {
 	}
 	c.Runtimes.DeleteSection(sec)
 	c.Runtimes.Set(sec, key, value)
-	for _, k := range []string{"models", "preset"} {
+	for _, k := range []string{"models", "presets"} {
 		if v, ok := kept[k]; ok {
 			c.Runtimes.Set(sec, k, v)
 		}
@@ -190,7 +190,7 @@ func Install(c *config.Config, name string, log func(string)) (Runtime, error) {
 }
 
 // Remove deletes a runtime's files (never a folder used in place), its
-// preset, and its config entry.
+// presets, and its config entry.
 func Remove(c *config.Config, name string) error {
 	s := c.Runtime(name)
 	if s == nil || name == config.Official {
@@ -201,7 +201,7 @@ func Remove(c *config.Config, name string) error {
 			return err
 		}
 	}
-	if err := RemovePreset(c, name); err != nil {
+	if err := os.RemoveAll(c.Dirs.Presets(name)); err != nil {
 		return err
 	}
 	c.Runtimes.DeleteSection(config.RuntimeSection(name))

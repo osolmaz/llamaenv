@@ -69,8 +69,8 @@ func (d Dirs) State() string { return filepath.Join(d.Data, "state") }
 // Logs is the folder for logs.
 func (d Dirs) Logs() string { return filepath.Join(d.Data, "logs") }
 
-// Presets is the folder for the llama.cpp presets that runtimes use.
-func (d Dirs) Presets() string { return filepath.Join(d.Config, "presets") }
+// Presets is the folder for a runtime's llama.cpp presets.
+func (d Dirs) Presets(runtime string) string { return filepath.Join(d.Config, "presets", runtime) }
 
 // Config holds llamaenv's config files.
 type Config struct {
@@ -281,15 +281,23 @@ func (c *Config) Unmap(model string) bool {
 	return found
 }
 
-// Preset returns the full path of a runtime's llama.cpp preset, or "".
-func (c *Config) Preset(runtime string) string {
+// PresetNames returns the file names of a runtime's llama.cpp presets, in
+// the order they were added.
+func (c *Config) PresetNames(runtime string) []string {
 	s := c.Runtime(runtime)
 	if s == nil {
-		return ""
+		return nil
 	}
-	p, _ := s.Get("preset")
-	if p == "" {
-		return ""
+	v, _ := s.Get("presets")
+	return strings.Fields(v)
+}
+
+// Presets returns the full paths of a runtime's llama.cpp presets, in the
+// order they were added.
+func (c *Config) Presets(runtime string) []string {
+	var paths []string
+	for _, n := range c.PresetNames(runtime) {
+		paths = append(paths, filepath.Join(c.Dirs.Presets(runtime), n))
 	}
-	return filepath.Join(c.Dirs.Config, filepath.FromSlash(p))
+	return paths
 }
