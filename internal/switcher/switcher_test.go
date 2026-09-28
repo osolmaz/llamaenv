@@ -499,3 +499,11 @@ func TestRuntimeLogsAreMarked(t *testing.T) {
 		t.Errorf("default router output must stay unmarked:\n%s", logs.String())
 	}
 }
+
+func TestAModelMappedToTheDefaultRuntimeUsesTheDefaultRouter(t *testing.T) {
+	h := start(t, func(o *Options) {
+		o.Owner = func(string) string { return "official" }
+		o.Runtimes = map[string]Launch{}
+	})
+	h.wantChat(bonsai, "served by official")
+}
