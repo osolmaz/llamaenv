@@ -243,7 +243,7 @@ func TestPresetErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.fails("not a llama.cpp preset", "preset", "prism", bad)
-	e.fails("no such file", "preset", "prism", filepath.Join(t.TempDir(), "missing.ini"))
+	e.fails("does not exist", "preset", "prism", filepath.Join(t.TempDir(), "missing.ini"))
 	good := filepath.Join(t.TempDir(), "good.ini")
 	if err := os.WriteFile(good, []byte("[*]\nparallel = 1\n"), 0o600); err != nil {
 		t.Fatal(err)

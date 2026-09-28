@@ -54,6 +54,9 @@ func readPreset(c *config.Config, src string, log func(string)) ([]byte, error) 
 		path = file
 	}
 	st, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("preset %s does not exist", src)
+	}
 	if err != nil {
 		return nil, err
 	}
