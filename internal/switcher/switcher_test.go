@@ -154,7 +154,7 @@ func (f *fakeRouter) events(w http.ResponseWriter, r *http.Request) {
 func (f *fakeRouter) chat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Model string
-		Hold  bool // send nothing until the client goes away, like a long prefill
+		Hold  bool // send no bytes until the client goes away, like a long prefill
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	line := strings.Repeat("log ", 25) + "\n"
@@ -172,6 +172,10 @@ func (f *fakeRouter) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Hold {
+		// A streaming router sends its headers at once, then prefills.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 		_, _ = fmt.Fprintln(os.Stderr, "client went away")
 		return
