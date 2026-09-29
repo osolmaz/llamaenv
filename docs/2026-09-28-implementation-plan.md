@@ -273,3 +273,6 @@ preset key, and `llama` fetches and trusts runtimes itself, the same
 `models.ini` and model repo `preset.ini` files keep working, and llamaenv
 should be deprecated and uninstalled. Until then, each runtime mapping is
 removed as soon as the model's support is upstream.
+
+[Changes that belong upstream](2026-09-29-upstream-issues.md) lists each gap
+that llamaenv works around, and what to remove when it is fixed.
