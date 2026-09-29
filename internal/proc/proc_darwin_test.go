@@ -123,23 +123,27 @@ func testProgram() *exec.Cmd {
 func TestASignalReachesAChildUnderTheWatcher(t *testing.T) {
 	Watcher = self()
 	t.Cleanup(func() { Watcher = "" })
-	g, err := NewGroup()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := testProgram()
-	cmd.Env = append(os.Environ(), "PROC_TEST_MODE=sleep", "PROC_TEST_PIDFILE="+filepath.Join(t.TempDir(), "pid"))
-	if err := g.Start(cmd); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	time.Sleep(200 * time.Millisecond) // let the watcher start its child
-	Signal(cmd, syscall.SIGTERM)
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		g.Stop(time.Second)
-		t.Fatal("SIGTERM did not stop the child under the watcher")
+	for _, sig := range []os.Signal{syscall.SIGTERM, os.Kill} {
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		g, err := NewGroup()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := testProgram()
+		cmd.Env = append(os.Environ(), "PROC_TEST_MODE=sleep", "PROC_TEST_PIDFILE="+pidFile)
+		if err := g.Start(cmd); err != nil {
+			t.Fatal(err)
+		}
+		child := waitForPid(t, pidFile)
+		Signal(cmd, sig)
+		_ = cmd.Wait()
+		deadline := time.Now().Add(5 * time.Second)
+		for syscall.Kill(child, 0) == nil {
+			if time.Now().After(deadline) {
+				_ = syscall.Kill(child, syscall.SIGKILL)
+				t.Fatalf("%v did not stop the child under the watcher", sig)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }
