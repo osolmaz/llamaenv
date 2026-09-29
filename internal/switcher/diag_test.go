@@ -3,6 +3,7 @@ package switcher
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -122,6 +123,7 @@ func hold(t *testing.T, h *harness, ctx context.Context) {
 	req.Header.Set("Content-Type", "application/json")
 	go func() {
 		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body) // read on, like a streaming client
 			_ = resp.Body.Close()
 		}
 	}()

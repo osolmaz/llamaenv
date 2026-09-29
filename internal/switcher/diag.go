@@ -198,16 +198,19 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 
 	done := make(chan struct{})
 	go s.watchStall(id, b, model, t, done)
+	// When the client goes away mid-response, the proxy panics with
+	// http.ErrAbortHandler, which net/http expects. The request still ends.
+	defer func() {
+		close(done)
+		e := Event{Kind: "done", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path,
+			Status: t.status, Bytes: t.bytes.Load(), DurationMS: time.Since(start).Milliseconds(),
+			ClientGone: r.Context().Err() != nil}
+		if first := t.first.Load(); first != 0 {
+			e.FirstByteMS = time.Duration(first - start.UnixNano()).Milliseconds()
+		}
+		d.add(e)
+	}()
 	b.serve(t, r)
-	close(done)
-
-	e := Event{Kind: "done", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path,
-		Status: t.status, Bytes: t.bytes.Load(), DurationMS: time.Since(start).Milliseconds(),
-		ClientGone: r.Context().Err() != nil}
-	if first := t.first.Load(); first != 0 {
-		e.FirstByteMS = time.Duration(first - start.UnixNano()).Milliseconds()
-	}
-	d.add(e)
 }
 
 // watchStall records one stall snapshot when the request goes silent.
