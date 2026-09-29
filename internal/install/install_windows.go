@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -91,45 +90,6 @@ func broadcastEnvironmentChange() {
 
 // appCandidates is empty: the Windows Llama app looks up llama.exe on PATH.
 func appCandidates() []string { return nil }
-
-// restartApp stops the Llama app and the llama server it started, then
-// starts the app again, so its next server start looks up llama.exe anew.
-// It reports false when the app is not installed or not running.
-func restartApp() (bool, error) {
-	script := `
-$ErrorActionPreference = 'Stop'
-$p = Get-AppxPackage -Name '` + llamaAppPackage + `'
-if (-not $p) { exit 2 }
-$procs = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($p.InstallLocation) }
-if (-not $procs) { exit 3 }
-$procs | Stop-Process -Force
-# The app is packaged, so Windows keeps its files under Packages\<family>.
-$pidFiles = @(
-  (Join-Path $env:LOCALAPPDATA ('Packages\' + $p.PackageFamilyName + '\LocalCache\Local\Llama\.llama.pid')),
-  (Join-Path $env:LOCALAPPDATA 'Llama\.llama.pid')
-)
-foreach ($pidFile in $pidFiles) {
-  if (Test-Path $pidFile) {
-    $serverPid = [int](Get-Content $pidFile -Raw).Trim()
-    $server = Get-Process -Id $serverPid -ErrorAction SilentlyContinue
-    if ($server -and $server.ProcessName -eq 'llama') { Stop-Process -Id $serverPid -Force }
-  }
-}
-Start-Sleep -Milliseconds 500
-Start-Process ('shell:AppsFolder\' + $p.PackageFamilyName + '!App')
-exit 0
-`
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if errors.As(err, &ee) && (ee.ExitCode() == 2 || ee.ExitCode() == 3) {
-		return false, nil
-	}
-	return err == nil, err
-}
 
 // replaceFile replaces dst, also when dst is a running program: Windows
 // allows renaming a running .exe, but not overwriting it.

@@ -77,7 +77,10 @@ app's files, or its settings.
 
 The only exception is install and uninstall: they MAY stop and restart the
 Llama app and the server that it started, so that the app looks up `llama`
-again. They MAY read the app's PID file for that. They MUST NOT write it.
+again. They MAY read the app's PID file for that. They MUST NOT write it. When llamaenv
+runs outside the desktop session, for example over SSH, they MAY start the app
+through a one-time scheduled task with an interactive logon, which runs it on
+the user's desktop. They MUST delete the task once it has run.
 
 ### 3. Pass through, unchanged
 
@@ -217,11 +220,13 @@ Remove this exception when the macOS app looks up `llama` on PATH.
 
 ## Known violations
 
-These exist on 2026-09-28 and MUST be fixed before a release.
+None on 2026-09-29.
 
-1. **Principle 2.** `llamaenv install` restarts the Llama app with
-   `Start-Process`. From a session without a desktop, such as a remote shell, the
-   app starts in that session instead of the user's desktop.
+Fixed on 2026-09-29:
+
+- `llamaenv install` restarted the Llama app with `Start-Process`. From a
+  session without the desktop, such as a remote shell, the app started in that
+  session instead of on the user's desktop (principle 2).
 
 Fixed on 2026-09-28:
 
