@@ -122,30 +122,23 @@ func TestQueueDropsInsteadOfBlocking(t *testing.T) {
 }
 
 func TestFileRecoversFromAFailedOpen(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "logs")
 	path := filepath.Join(dir, "a.log")
 	f, err := Open(path, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	// A folder in the way of the file, which cannot move onto the old file,
-	// makes the next open fail.
+	// Without its folder, the next open fails.
 	_ = f.f.Close()
 	f.f = nil
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(path, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path+".1", []byte("old\n"), 0o600); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.Write([]byte("lost\n")); err == nil {
 		t.Error("a write without a file must fail")
 	}
-	if err := os.Remove(path); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.Write([]byte("kept\n")); err != nil || read(t, path) != "kept\n" {
