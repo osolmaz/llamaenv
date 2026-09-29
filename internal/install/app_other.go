@@ -2,7 +2,7 @@
 
 package install
 
-// appCandidates is empty: there is no Llama app on Linux.
+// appCandidates is empty: there is no Llama app on Linux or other systems.
 func appCandidates() []string { return nil }
 
 // restartApp has nothing to do on Linux: there is no Llama app there, and a

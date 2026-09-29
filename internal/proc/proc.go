@@ -10,6 +10,7 @@
 package proc
 
 import (
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -69,6 +70,15 @@ func (g *Group) Stop(timeout time.Duration) {
 		}
 		g.sys.killAll(cmds)
 	})
+}
+
+// Signal passes s on to a child that Start started: on Linux and macOS to its
+// process group, which holds the program, the servers it started, and on
+// macOS the watcher; elsewhere to the child itself.
+func Signal(c *exec.Cmd, s os.Signal) {
+	if c.Process != nil {
+		signalGroup(c, s)
+	}
 }
 
 func running(c *exec.Cmd) bool { return c.Process != nil && alive(c) }

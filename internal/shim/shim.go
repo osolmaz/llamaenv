@@ -192,9 +192,7 @@ func passthrough(real string, args []string) int {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for s := range sig {
-			if cmd.Process != nil {
-				_ = cmd.Process.Signal(s)
-			}
+			proc.Signal(cmd, s)
 		}
 	}()
 	err = cmd.Wait()

@@ -4,6 +4,7 @@ package proc
 
 import (
 	"math"
+	"os"
 	"os/exec"
 	"syscall"
 	"unsafe"
@@ -82,3 +83,5 @@ func pid32(pid int) uint32 {
 
 // Watch is only needed on macOS.
 func Watch([]string) int { return 2 }
+
+func signalGroup(c *exec.Cmd, s os.Signal) { _ = c.Process.Signal(s) }

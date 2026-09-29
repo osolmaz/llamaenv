@@ -3,6 +3,7 @@
 package proc
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -27,4 +28,12 @@ func (sysGroup) killAll(cmds []*exec.Cmd) {
 			_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
 		}
 	}
+}
+
+func signalGroup(c *exec.Cmd, s os.Signal) {
+	if sig, ok := s.(syscall.Signal); ok {
+		_ = syscall.Kill(-c.Process.Pid, sig)
+		return
+	}
+	_ = c.Process.Signal(s)
 }
