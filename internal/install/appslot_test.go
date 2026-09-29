@@ -3,6 +3,7 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ type fakeMac struct {
 	brewBin  string
 	localBin string
 	ran      []string
+	failSudo string // a sudo command that starts with this fails
 	slot     appSlot
 }
 
@@ -56,8 +58,14 @@ func (m *fakeMac) run(name string, args ...string) error {
 	case filepath.Base(name) == "brew" && args[0] == "link":
 		return os.Symlink("../Cellar/llama.cpp/1/bin/llama", m.brewBin)
 	case name == "sudo":
-		must(m.t, os.Chmod(filepath.Dir(m.localBin), 0o750)) //nolint:gosec // a test folder
-		return exec.Command(args[0], args[1:]...).Run()      //nolint:gosec,noctx // the test's own command
+		if m.failSudo != "" && strings.HasPrefix(strings.Join(args, " "), m.failSudo) {
+			return errors.New("sudo: a password is required")
+		}
+		// As root: the folder stays read-only for everything else.
+		dir := filepath.Dir(m.localBin)
+		must(m.t, os.Chmod(dir, 0o750))                    //nolint:gosec // a test folder
+		defer func() { must(m.t, os.Chmod(dir, 0o500)) }() //nolint:gosec // a test folder
+		return exec.Command(args[0], args[1:]...).Run()    //nolint:gosec,noctx // the test's own command
 	}
 	return nil
 }
@@ -211,8 +219,67 @@ func TestAProtectedFolderIsChangedThroughSudo(t *testing.T) {
 	if !m.slot.isShim(m.localBin) || read(t, m.slot.official()) != "manual build" {
 		t.Error("the shim did not take the protected place")
 	}
-	if len(m.ran) != 1 || !strings.HasPrefix(m.ran[0], "sudo mv -f") {
-		t.Errorf("ran %q, want one sudo mv", m.ran)
+	if len(m.ran) != 2 || !strings.HasPrefix(m.ran[0], "sudo mv -f") || !strings.HasPrefix(m.ran[1], "sudo ln -s") {
+		t.Errorf("ran %q, want sudo mv and sudo ln", m.ran)
+	}
+	m.release()
+	if read(t, m.localBin) != "manual build" {
+		t.Error("the protected llama was not put back")
+	}
+}
+
+func TestAFailedShimStepPutsTheOfficialLlamaBack(t *testing.T) {
+	m := newFakeMac(t)
+	writeFile(t, m.localBin, "manual build")
+	must(t, os.Chmod(filepath.Dir(m.localBin), 0o500))                  //nolint:gosec // a test folder
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(m.localBin), 0o750) }) //nolint:gosec // a test folder
+	m.failSudo = "ln"
+	if err := m.slot.take(func(string) {}); err == nil {
+		t.Fatal("take did not fail")
+	}
+	if read(t, m.localBin) != "manual build" {
+		t.Error("the official llama was not put back after the failed step")
+	}
+}
+
+func TestAFailedRecordChangesNothing(t *testing.T) {
+	m := newFakeMac(t)
+	writeFile(t, m.managed, "official")
+	must(t, os.MkdirAll(m.slot.dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(m.slot.dir, 0o750) }) //nolint:gosec // a test folder
+	if err := m.slot.take(func(string) {}); err == nil {
+		t.Fatal("take did not fail")
+	}
+	if st, err := os.Lstat(m.managed); err != nil || st.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("the app's llama changed: %v", err)
+	}
+}
+
+func TestUninstallFinishesAnInterruptedInstall(t *testing.T) {
+	m := newFakeMac(t)
+	writeFile(t, m.managed, "official")
+	must(t, os.MkdirAll(m.slot.dir, 0o750))
+	// An install that stopped after it moved the official llama away.
+	must(t, writeRecord(m.slot.record(), slotRecord{Slot: m.managed}))
+	must(t, os.Rename(m.managed, m.slot.official()))
+	m.release()
+	if read(t, m.managed) != "official" {
+		t.Error("the official llama was not put back")
+	}
+}
+
+func TestACurlInstallAfterHomebrewUndoesTheHomebrewChange(t *testing.T) {
+	m := newFakeMac(t)
+	m.homebrew()
+	m.take()
+	writeFile(t, m.managed, "curl") // install.sh runs; the app now prefers it
+	m.take()
+	if !m.slot.isShim(m.managed) || exists(m.localBin) || read(t, m.brewBin) != "brew" {
+		t.Error("the Homebrew change was not undone before the new take")
+	}
+	m.release()
+	if read(t, m.managed) != "curl" || read(t, m.brewBin) != "brew" {
+		t.Error("uninstall did not restore both installs")
 	}
 }
 

@@ -2,7 +2,10 @@
 
 package proc
 
-import "os/exec"
+import (
+	"os"
+	"os/exec"
+)
 
 // Other systems are not supported targets; this keeps the code building there
 // for development, with plain child processes.
@@ -17,3 +20,5 @@ func (sysGroup) killAll(cmds []*exec.Cmd) {}
 
 // Watch is only needed on macOS.
 func Watch([]string) int { return 2 }
+
+func signalGroup(c *exec.Cmd, s os.Signal) { _ = c.Process.Signal(s) }
