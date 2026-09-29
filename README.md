@@ -85,7 +85,8 @@ So on macOS, `llamaenv install` puts the shim in place of the file that the app
 runs, and keeps that official `llama` in llamaenv's folder. This works with
 every way to install llama.app. With Homebrew, it unlinks llama.cpp and puts
 the shim at `/usr/local/bin/llama`, which asks for your password once.
-`llamaenv uninstall` puts everything back.
+`llamaenv uninstall` puts everything back. If you delete llamaenv's folders by
+hand instead, run `brew link llama.cpp` afterwards.
 
 An update of the app's `llama`, a new run of `install.sh`, or `brew upgrade`
 puts the official `llama` back in front, and the app then runs without

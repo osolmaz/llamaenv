@@ -302,3 +302,13 @@ func TestOffMacOSNothingIsTaken(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestAMissingBinFolderIsCreated(t *testing.T) {
+	m := newFakeMac(t)
+	m.homebrew()
+	must(t, os.RemoveAll(filepath.Dir(m.localBin))) // a new Mac has no /usr/local/bin
+	m.take()
+	if !m.slot.isShim(m.localBin) {
+		t.Error("the shim was not put in a new bin folder")
+	}
+}

@@ -198,8 +198,11 @@ command that turns llamaenv on again. llamaenv MUST NOT watch for it or undo it
 by itself.
 
 When the llamaenv folder is deleted by hand, the shim symlink points nowhere,
-so the app skips it and installs its own official `llama`. The symlink is the
-only leftover.
+so the app skips it and installs its own official `llama`. The symlink is a
+leftover. With Homebrew, the formula also stays unlinked, because the record
+that uninstall uses to link it again was in that folder; `brew link <formula>`
+links it again. Keeping the record anywhere else would break principle 8 for
+every install.
 
 Remove this exception when the macOS app looks up `llama` on PATH.
 
