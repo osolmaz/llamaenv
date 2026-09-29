@@ -13,6 +13,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 	defaultStall = 60 * time.Second
 	probeTimeout = 3 * time.Second
 	maxProbeBody = 2 << 10
+	maxField     = 512 // a client's model name or path, in an event
 )
 
 // EventsFile is the event log in a switcher's log folder.
@@ -115,6 +117,8 @@ func (d *diag) close() {
 
 func (d *diag) add(e Event) {
 	e.Time, e.PID = time.Now().UTC(), d.pid
+	// The client names the model, so it bounds no event by itself.
+	e.Model, e.Path, e.Message = cut(e.Model), cut(e.Path), cut(e.Message)
 	if n := d.stderr.Dropped() + d.log.Dropped(); n != d.dropped.Swap(n) {
 		e.Dropped = n
 	}
@@ -122,6 +126,13 @@ func (d *diag) add(e Event) {
 	if err == nil {
 		_, _ = d.events.Write(append(line, '\n'))
 	}
+}
+
+func cut(s string) string {
+	if len(s) <= maxField {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxField], "") + "..."
 }
 
 // say records one of the switcher's own messages and passes it to the
@@ -319,27 +330,34 @@ type InFlight struct {
 // from its event log, oldest first.
 func ReadInFlight(dir string, pid int) []InFlight {
 	open := map[uint64]*InFlight{}
-	scanEvents(filepath.Join(dir, EventsFile), func(e Event) {
-		if e.PID != pid {
-			return
-		}
-		switch e.Kind {
-		case "request":
-			open[e.ID] = &InFlight{ID: e.ID, Runtime: e.Runtime, Model: e.Model, Since: e.Time}
-		case "stall":
-			if r := open[e.ID]; r != nil {
-				r.Stalled = true
-			}
-		case "done":
-			delete(open, e.ID)
-		}
-	})
+	// A long request can start before the event log moved to ".1".
+	path := filepath.Join(dir, EventsFile)
+	scan := func(path string) { scanEvents(path, func(e Event) { track(open, e, pid) }) }
+	scan(path + ".1")
+	scan(path)
 	out := make([]InFlight, 0, len(open))
 	for _, r := range open {
 		out = append(out, *r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// track applies one event of the switcher with this PID to its open requests.
+func track(open map[uint64]*InFlight, e Event, pid int) {
+	if e.PID != pid {
+		return
+	}
+	switch e.Kind {
+	case "request":
+		open[e.ID] = &InFlight{ID: e.ID, Runtime: e.Runtime, Model: e.Model, Since: e.Time}
+	case "stall":
+		if r := open[e.ID]; r != nil {
+			r.Stalled = true
+		}
+	case "done":
+		delete(open, e.ID)
+	}
 }
 
 // scanEvents calls fn for each readable event in an event log.

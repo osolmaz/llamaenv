@@ -170,3 +170,22 @@ func TestSilentRequestLeavesASnapshotAndAbortReachesTheRouter(t *testing.T) {
 		return ok
 	})
 }
+
+func TestEventsStayBoundedAndInFlightSpansRotation(t *testing.T) {
+	dir := t.TempDir()
+	d := newDiag(Options{LogDir: dir})
+	d.add(Event{Kind: "request", ID: 1, Model: strings.Repeat("m", 1<<20)})
+	d.close()
+	// The event log moves to ".1" while the request runs.
+	d = newDiag(Options{LogDir: dir})
+	defer d.close()
+	d.add(Event{Kind: "stall", ID: 1})
+	info, err := os.Stat(filepath.Join(dir, EventsFile+".1"))
+	if err != nil || info.Size() > 2<<10 {
+		t.Errorf("one event takes %v bytes: %v", info.Size(), err)
+	}
+	r := ReadInFlight(dir, os.Getpid())
+	if len(r) != 1 || !r[0].Stalled || len(r[0].Model) > maxField+3 {
+		t.Errorf("in flight: %d requests", len(r))
+	}
+}
