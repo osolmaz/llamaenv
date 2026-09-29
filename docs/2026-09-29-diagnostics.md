@@ -9,14 +9,18 @@ tags: [llamaenv, diagnostics, logs]
 
 ## Why
 
-On 2026-09-29 a Prism runtime wedged on a Windows laptop: the router answered
-`/health` and `/models`, but chat requests hung, the GPU sat at 0%, and killing
-the model's child did not recover it. There were no logs to read.
+On 2026-09-29 a Prism runtime wedged on a Windows laptop after a client
+aborted a stream and sent it again. The router answered `/health` and
+`/models`, but chat requests hung, the GPU sat at 0%, and killing the model's
+child did not recover it: the router kept the dead child `loaded`. There were
+no logs to read, so the cause could not be found.
 
-The likely cause is output backpressure. The switcher copied each runtime
-router's output, line by line, into its own stderr, which is a pipe that the
-Llama app reads. The llama.cpp logger blocks when its queue is full
-(`common/log.cpp`, `cv_full.wait`). So when that pipe stops draining:
+### A possible cause: output backpressure
+
+The switcher copied each runtime router's output, line by line, into its own
+stderr, which is a pipe that the Llama app reads. The llama.cpp logger blocks
+when its queue is full (`common/log.cpp`, `cv_full.wait`). So if that pipe
+stops draining:
 
 1. the switcher's copy blocks, and the router's stdout pipe fills;
 2. every `LOG` call in the router blocks, so a chat request stops at
@@ -26,9 +30,36 @@ Llama app reads. The llama.cpp logger blocks when its queue is full
    logger blocks inside inference and the GPU goes idle;
 4. that thread never sees the child exit, so the router keeps it `loaded`.
 
-A switcher whose output went to a pipe that nobody read wedged the same way
-in a test. The switcher's own messages had the same problem: `makeActive`
-logged to stderr while it held the lock that every model request takes.
+This matches every symptom, and the switcher's own messages had the same
+problem: `makeActive` logged to stderr while it held the lock that every model
+request takes. llamaenv must not block on output in any case.
+
+It is not confirmed as the cause. On the laptop, with the switcher's output
+going into a pipe that nobody read, the old build wedged once in 4 rounds of
+abort and resend, then recovered, which a full pipe does not explain. In a
+later control run of 8 rounds under the same conditions it did not wedge. The
+new build passed 8 of 8. The live wedge stays unexplained. These diagnostics
+exist so that the next one can be read.
+
+### What the laptop tests ruled out
+
+About 40 rounds of abort and resend, with a 24K-token prompt, from the laptop,
+over the tailnet, and from inside a Docker container:
+
+- The switcher passes client aborts on. It reads the whole request body, so
+  `net/http` sees the client go away, and `httputil.ReverseProxy` cancels the
+  router request. With the new event log, each aborted request ended within
+  about 6 seconds of the abort.
+- Prism's router and child cancel an aborted prefill from a clean state, and
+  recover when the child is killed, idle or while streaming.
+
+### A bug found with the new event log
+
+The first laptop run showed aborted requests that never ended in the event
+log, each with a false stall a minute later. When a client goes away
+mid-response, `httputil.ReverseProxy` panics with `http.ErrAbortHandler`,
+which `net/http` expects, and the code after the proxy call did not run. The
+end of a request is now recorded in a `defer`.
 
 ## What upstream provides
 
