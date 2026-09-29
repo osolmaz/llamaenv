@@ -51,6 +51,9 @@ exit 0
 func restartApp() (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	// A start task that an earlier run could not delete goes first, also when
+	// the app does not run, so that install and uninstall clean it up.
+	deleteStartTask(ctx)
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", stopAppScript)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
@@ -81,12 +84,17 @@ func startApp(ctx context.Context, family string, desktop bool, now time.Time) e
 		// G204: fixed Windows programs; the family name comes from Get-AppxPackage.
 		if err := exec.CommandContext(ctx, args[0], args[1:]...).Run(); err != nil { //nolint:gosec // see above
 			if !desktop {
-				_ = exec.CommandContext(ctx, "schtasks.exe", "/delete", "/tn", startTask, "/f").Run()
+				deleteStartTask(ctx)
 			}
 			return err
 		}
 	}
 	return nil
+}
+
+// deleteStartTask deletes the start task, if it exists.
+func deleteStartTask(ctx context.Context) {
+	_ = exec.CommandContext(ctx, "schtasks.exe", "/delete", "/tn", startTask, "/f").Run()
 }
 
 // startCommands returns the commands that start the Llama app. On the
