@@ -28,7 +28,8 @@ type Options struct {
 
 // Install makes sure the official llama exists, installs the shim and
 // llamaenv into llamaenv's bin folder, puts that folder first on the user
-// PATH, and restarts the Llama app so that it picks up the shim.
+// PATH, on macOS takes the place of the llama that the Llama app runs, and
+// restarts the Llama app so that it picks up the shim.
 func Install(d config.Dirs, o Options) error {
 	if err := ensureOfficial(o); err != nil {
 		return err
@@ -40,8 +41,42 @@ func Install(d config.Dirs, o Options) error {
 		return fmt.Errorf("add %s to PATH: %w", d.Bin(), err)
 	}
 	o.Log("added " + d.Bin() + " to the front of the user PATH")
+	if err := newAppSlot(d).take(o.Log); err != nil {
+		return err
+	}
 	reportRestart(o.Log)
 	return nil
+}
+
+// The Llama app on this system: on macOS the files it runs, in its order, and
+// how to restart it. Tests replace both, so that they never change the real
+// system.
+var (
+	AppCandidates = appCandidates
+	RestartApp    = restartApp
+)
+
+// AppStatus says which llama the macOS Llama app runs. It is empty on the
+// other systems, where the app uses PATH or does not exist.
+func AppStatus(d config.Dirs) string { return newAppSlot(d).status() }
+
+func newAppSlot(d config.Dirs) appSlot {
+	return appSlot{
+		candidates: AppCandidates(),
+		shim:       filepath.Join(d.Bin(), runtimes.Exe("llama")),
+		dir:        d.Official(),
+		run:        runCommand,
+	}
+}
+
+// runCommand runs a setup command, such as brew or sudo, in the terminal.
+func runCommand(name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	// G204: only brew and sudo, with llamaenv's own arguments (appSlot).
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // setup commands, see above
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stderr, os.Stderr
+	return cmd.Run()
 }
 
 // ensureOfficial installs the official llama through llama.app's own
@@ -79,7 +114,7 @@ func installPrograms(d config.Dirs) error {
 }
 
 func reportRestart(log func(string)) {
-	restarted, err := restartApp()
+	restarted, err := RestartApp()
 	switch {
 	case err != nil:
 		log("could not restart the Llama app, restart it yourself: " + err.Error())
@@ -88,8 +123,9 @@ func reportRestart(log func(string)) {
 	}
 }
 
-// Uninstall stops the switcher, removes llamaenv's PATH entry and folders,
-// and restarts the Llama app, which then runs the official llama again.
+// Uninstall stops the switcher, removes llamaenv's PATH entry, on macOS puts
+// the official llama back where the Llama app runs it, removes llamaenv's
+// folders, and restarts the Llama app, which then runs the official llama again.
 // Model files in the Hugging Face cache stay.
 func Uninstall(d config.Dirs, log func(string)) error {
 	stopSwitcher(d, log)
@@ -97,6 +133,9 @@ func Uninstall(d config.Dirs, log func(string)) error {
 		return fmt.Errorf("remove %s from PATH: %w", d.Bin(), err)
 	}
 	log("removed " + d.Bin() + " from the user PATH")
+	if err := newAppSlot(d).release(log); err != nil {
+		return err
+	}
 	reportRestart(log)
 	// On Windows both are one folder, which removeDataDir handles, including
 	// the running llamaenv.exe inside it.

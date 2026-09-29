@@ -148,3 +148,19 @@ func TestMissingOfficialLlamaIsReported(t *testing.T) {
 		t.Error("found a llama that does not exist")
 	}
 }
+
+func TestTheKeptOfficialLlamaComesFirst(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("LLAMAENV_OFFICIAL", "")
+	t.Setenv("LLAMAENV_HOME", home)
+	onPath := t.TempDir()
+	for _, f := range []string{filepath.Join(onPath, runtimes.Exe("llama")), filepath.Join(home, "official", "llama")} {
+		must(t, os.MkdirAll(filepath.Dir(f), 0o750))
+		must(t, os.WriteFile(f, []byte("x"), 0o600))
+	}
+	t.Setenv("PATH", onPath)
+	got, err := RealLlama()
+	if err != nil || got != filepath.Join(home, "official", "llama") {
+		t.Errorf("RealLlama() = %q, %v; want the kept official llama", got, err)
+	}
+}

@@ -105,10 +105,6 @@ func withoutBlock(text string) string {
 	return text[:i] + text[end:]
 }
 
-// restartApp has nothing to do on Linux: there is no Llama app there, and a
-// running "llama serve" keeps its program until it is restarted.
-func restartApp() (bool, error) { return false, nil }
-
 func replaceFile(tmp, dst string) error { return os.Rename(tmp, dst) }
 
 func removeDataDir(dir string) error { return os.RemoveAll(dir) }

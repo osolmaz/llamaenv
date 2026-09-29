@@ -89,6 +89,9 @@ func broadcastEnvironmentChange() {
 		uintptr(unsafe.Pointer(env)), smtoAbortIfHung, 5000, uintptr(unsafe.Pointer(&result))) //nolint:gosec // Windows API call, see above
 }
 
+// appCandidates is empty: the Windows Llama app looks up llama.exe on PATH.
+func appCandidates() []string { return nil }
+
 // restartApp stops the Llama app and the llama server it started, then
 // starts the app again, so its next server start looks up llama.exe anew.
 // It reports false when the app is not installed or not running.

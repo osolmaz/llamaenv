@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/osolmaz/llamaenv/internal/install"
 	"github.com/osolmaz/llamaenv/internal/runtimes"
 	"github.com/osolmaz/llamaenv/internal/switcher"
 )
@@ -20,6 +21,9 @@ func TestMain(m *testing.M) {
 		_, _ = os.Stdout.WriteString("version: 9 (build 11200, fake)\n")
 		os.Exit(0)
 	}
+	// Keep every test away from the real Llama app and its files.
+	install.AppCandidates = func() []string { return nil }
+	install.RestartApp = func() (bool, error) { return false, nil }
 	os.Exit(m.Run())
 }
 
