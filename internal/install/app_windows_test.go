@@ -15,7 +15,7 @@ const family = "4e440e29-8151-4465-b20f-fb3acb283925_et8rgxdxvrbdj"
 
 func TestTheAppStartsFromExplorerOnTheDesktop(t *testing.T) {
 	want := [][]string{{`C:\Windows\explorer.exe`, `shell:AppsFolder\` + family + `!App`}}
-	if got := startCommands(family, true); !reflect.DeepEqual(got, want) {
+	if got := startCommands(family, true, time.Now()); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q", got)
 	}
 }
@@ -23,13 +23,13 @@ func TestTheAppStartsFromExplorerOnTheDesktop(t *testing.T) {
 // From a remote shell, a one-time interactive task starts the app in the
 // user's desktop session, and is deleted after it ran.
 func TestTheAppStartsThroughAOneTimeTaskFromARemoteShell(t *testing.T) {
-	got := startCommands(family, false)
+	got := startCommands(family, false, time.Date(2026, 9, 29, 17, 25, 30, 0, time.Local))
 	if len(got) != 4 {
 		t.Fatalf("got %d commands: %q", len(got), got)
 	}
 	create, run, del := strings.Join(got[0], " "), strings.Join(got[1], " "), strings.Join(got[3], " ")
 	app := `C:\Windows\explorer.exe shell:AppsFolder\` + family + `!App`
-	if !strings.Contains(create, "/create /tn "+startTask+" /tr "+app) || !strings.HasSuffix(create, "/it /f") {
+	if !strings.Contains(create, "/create /tn "+startTask+" /tr "+app) || !strings.HasSuffix(create, "/sc once /st 17:24 /it /f") {
 		t.Errorf("create: %s", create)
 	}
 	if run != "schtasks.exe /run /tn "+startTask || del != "schtasks.exe /delete /tn "+startTask+" /f" {
@@ -50,6 +50,18 @@ func TestTheAppScriptsParse(t *testing.T) {
 		cancel()
 		if err != nil || strings.TrimSpace(string(out)) != "" {
 			t.Errorf("%s script: %v %s", name, err, out)
+		}
+	}
+}
+
+func TestTheTaskStartTimeHasPassed(t *testing.T) {
+	for now, want := range map[string]string{"17:25:30": "17:24", "00:00:10": "00:00", "00:01:00": "00:00", "23:59:59": "23:58"} {
+		at, err := time.ParseInLocation("15:04:05", now, time.Local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := pastMinute(at); got != want {
+			t.Errorf("at %s: %s, want %s", now, got, want)
 		}
 	}
 }
