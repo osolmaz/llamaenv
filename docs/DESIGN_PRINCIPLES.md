@@ -157,6 +157,39 @@ Several servers can run at the same time, for example the Llama app's server
 and a test server. Each llamaenv switcher MUST keep its own state, and MUST NOT
 overwrite another instance's state.
 
+## Platform exceptions
+
+### macOS: the Llama app does not use PATH
+
+Checked: `ggml-org/Llama-macOS` 0.42.0, `Llama/Engine/LlamaBinaries.swift`
+and `Llama/Engine/LlamaInstaller.swift`.
+
+The macOS Llama app runs the first of these files that exists:
+`~/.llama-app/llama` (its own copy, which it keeps at its pinned version),
+`/opt/homebrew/bin/llama`, and `/usr/local/bin/llama`. It never reads PATH, so
+principle 2 cannot reach it.
+
+On macOS, llamaenv MAY break principles 2 and 8 in these ways, and only in
+these ways:
+
+- It MAY put one symlink at `/usr/local/bin/llama` that points to its shim.
+  The app treats that path as a manual install and never changes it.
+- It MAY run `brew unlink llama.cpp` at install, so that the app reaches that
+  symlink, and `brew link llama.cpp` at uninstall. It MUST relink only when it
+  unlinked. It MUST NOT edit files in the Homebrew prefix itself.
+
+It MUST NOT write `~/.llama-app/llama` or any other file of the app. The
+official `llama` stays Homebrew's, through `/opt/homebrew/opt/llama.cpp/bin/llama`,
+which stays in place while unlinked and across upgrades.
+
+When the app runs any other `llama`, for example after `brew upgrade` links
+llama.cpp again or after the app installs its own copy, llamaenv is off and the
+app runs the standard path. `llamaenv status` MUST report this and name the
+command that turns llamaenv on again. llamaenv MUST NOT watch for it or undo
+it by itself.
+
+Remove this exception when the macOS app looks up `llama` on PATH.
+
 ## Known violations
 
 These exist on 2026-09-28 and MUST be fixed before a release.

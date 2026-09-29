@@ -140,7 +140,10 @@ first use case.
 1. **Windows** x64 and arm64, with the Llama app and with `llama serve`.
 2. **Linux** x64 and arm64, with `llama serve` from llama.app.
 
-macOS is not in scope for now.
+3. **macOS** arm64, with the Llama app and with `llama serve` from Homebrew.
+   The app does not use PATH, so llamaenv uses the exception in
+   [the design principles](DESIGN_PRINCIPLES.md#macos-the-llama-app-does-not-use-path).
+   Not built yet.
 
 ## Non-goals
 
