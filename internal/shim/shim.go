@@ -87,6 +87,7 @@ func options(real string, serveArgs []string, logf func(string)) (switcher.Optio
 		Unavailable: map[string]error{},
 		Exclusive:   c.Exclusive(),
 		StateDir:    filepath.Join(dirs.State(), strconv.Itoa(sa.Port)),
+		LogDir:      switcher.LogDir(dirs.Logs(), sa.Port),
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		Log:         logf,

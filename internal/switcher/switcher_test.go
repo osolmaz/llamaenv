@@ -39,6 +39,7 @@ type fakeRouter struct {
 	status     map[string]string
 	subs       []chan string
 	reloads    int
+	chatty     int // bytes of log output per chat request, written as llama.cpp does: in the request
 }
 
 func runFakeRouter(args []string) {
@@ -48,9 +49,10 @@ func runFakeRouter(args []string) {
 	host := fs.String("host", "127.0.0.1", "")
 	port := fs.Int("port", 0, "")
 	preset := fs.String("models-preset", "", "")
+	chatty := fs.Int("chatty", 0, "")
 	_ = fs.Parse(args)
 
-	f := &fakeRouter{name: *name, status: map[string]string{}, presetFile: *preset}
+	f := &fakeRouter{name: *name, status: map[string]string{}, presetFile: *preset, chatty: *chatty}
 	f.readPreset()
 	for _, m := range strings.Split(*models, ",") {
 		f.status[m] = "unloaded"
@@ -150,8 +152,15 @@ func (f *fakeRouter) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeRouter) chat(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Model string }
+	var body struct {
+		Model string
+		Hold  bool // send nothing until the client goes away, like a long prefill
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	line := strings.Repeat("log ", 25) + "\n"
+	for n := 0; n < f.chatty; n += len(line) {
+		_, _ = io.WriteString(os.Stderr, line)
+	}
 	f.mu.Lock()
 	_, known := f.status[body.Model]
 	if known && f.status[body.Model] != "loaded" {
@@ -160,6 +169,11 @@ func (f *fakeRouter) chat(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	if !known {
 		http.Error(w, "unknown model", http.StatusNotFound)
+		return
+	}
+	if body.Hold {
+		<-r.Context().Done()
+		_, _ = fmt.Fprintln(os.Stderr, "client went away")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

@@ -1,7 +1,6 @@
 package switcher
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,9 +43,15 @@ type Options struct {
 	// StateDir is this switcher's own folder, removed when it stops. It holds
 	// switcher.json for "llamaenv status" and the combined presets.
 	StateDir string
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Log      func(string)
+	// LogDir keeps this switcher's diagnostics across restarts, within a
+	// fixed disk budget. Empty writes no files.
+	LogDir string
+	// StallAfter is how long a model request may get no bytes before the
+	// switcher records a snapshot of its router. Zero means one minute.
+	StallAfter time.Duration
+	Stdout     io.Writer
+	Stderr     io.Writer
+	Log        func(string)
 }
 
 // Switcher routes requests between routers.
@@ -55,6 +60,7 @@ type Switcher struct {
 	def      *backend
 	runtimes map[string]*backend
 	client   *http.Client
+	diag     *diag
 
 	activeMu sync.Mutex
 	active   *backend // the backend that last got a model request
@@ -72,6 +78,8 @@ func Run(ctx context.Context, opt Options) error {
 	defer group.Stop(10 * time.Second)
 
 	s := newSwitcher(opt, group)
+	defer s.diag.close()
+	s.diag.add(Event{Kind: "start", Message: "llamaenv " + opt.Args.Address()})
 	listener, err := s.startRouters(ctx)
 	if err != nil {
 		return err
@@ -84,11 +92,17 @@ func Run(ctx context.Context, opt Options) error {
 }
 
 func newSwitcher(opt Options, group *proc.Group) *Switcher {
-	s := &Switcher{opt: opt, runtimes: map[string]*backend{}, client: &http.Client{Timeout: 30 * time.Second}}
-	s.def = &backend{name: opt.DefaultName, launch: opt.Default, args: opt.Args, group: group, out: opt.Stdout, errOut: opt.Stderr}
+	d := newDiag(opt)
+	// The switcher's own messages never wait for stderr: it logs while it
+	// holds locks that every model request takes.
+	opt.Log = d.say
+	s := &Switcher{opt: opt, runtimes: map[string]*backend{}, client: &http.Client{Timeout: 30 * time.Second}, diag: d}
+	// The default router keeps the client's streams, as the official "llama
+	// serve" would.
+	s.def = &backend{name: opt.DefaultName, launch: opt.Default, args: opt.Args, group: group, out: opt.Stdout, errOut: opt.Stderr, diag: d}
 	for name, l := range opt.Runtimes {
-		pw := prefixWriter(opt.Stderr, "["+name+"] ")
-		b := &backend{name: name, launch: l, args: opt.Args, group: group, out: pw, errOut: pw, presets: opt.Presets[name]}
+		out := d.runtimeOutput(name)
+		b := &backend{name: name, launch: l, args: opt.Args, group: group, out: out, errOut: out, presets: opt.Presets[name], diag: d}
 		b.combined = filepath.Join(opt.StateDir, name+".preset.ini")
 		s.runtimes[name] = b
 	}
@@ -155,10 +169,14 @@ func (s *Switcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	if model != "" && s.opt.Exclusive && usesModel(r) {
+	if model == "" || !usesModel(r) {
+		b.serve(w, r)
+		return
+	}
+	if s.opt.Exclusive {
 		s.makeActive(r.Context(), b)
 	}
-	b.serve(w, r)
+	s.serveTracked(w, r, b, model)
 }
 
 // serveSpecial answers the requests that do not go by model: the web page,
@@ -330,6 +348,7 @@ func ReadStates(stateDir string) []State {
 type State struct {
 	PID      int            `json:"pid"`
 	Address  string         `json:"address"`
+	Logs     string         `json:"logs,omitempty"`
 	Backends []BackendState `json:"backends"`
 }
 
@@ -351,7 +370,7 @@ func (s *Switcher) writeState() {
 }
 
 func (s *Switcher) state() State {
-	st := State{PID: os.Getpid(), Address: s.opt.Args.Address()}
+	st := State{PID: os.Getpid(), Address: s.opt.Args.Address(), Logs: s.opt.LogDir}
 	for _, b := range s.all() {
 		port, err := b.status()
 		bs := BackendState{Name: b.name, Program: b.launch.Program, Port: port}
@@ -375,20 +394,4 @@ func saveJSON(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
-}
-
-// prefixWriter marks each output line of a runtime router with its name.
-func prefixWriter(w io.Writer, prefix string) io.Writer {
-	if w == nil {
-		return io.Discard
-	}
-	pr, pw := io.Pipe()
-	go func() {
-		sc := bufio.NewScanner(pr)
-		sc.Buffer(make([]byte, 64*1024), 1<<20)
-		for sc.Scan() {
-			_, _ = fmt.Fprintln(w, prefix+sc.Text())
-		}
-	}()
-	return pw
 }
