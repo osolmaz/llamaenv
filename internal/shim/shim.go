@@ -209,8 +209,9 @@ func passthrough(real string, args []string) int {
 	return 0
 }
 
-// RealLlama finds the official llama: the first "llama" on PATH that is not
-// llamaenv's own shim, or llama.app's install location.
+// RealLlama finds the official llama: on macOS the one that the Llama app
+// ran before llamaenv took its place, else the first "llama" on PATH that is
+// not llamaenv's own shim, or llama.app's install location.
 func RealLlama() (string, error) {
 	if p := os.Getenv("LLAMAENV_OFFICIAL"); p != "" {
 		return p, nil
@@ -219,6 +220,9 @@ func RealLlama() (string, error) {
 	own := ""
 	if dirs, err := config.DefaultDirs(); err == nil {
 		own = dirs.Bin()
+		if kept := filepath.Join(dirs.Official(), "llama"); isOtherProgram(kept, self) {
+			return kept, nil
+		}
 	}
 	return findReal(os.Getenv("PATH"), self, own, knownLocations())
 }

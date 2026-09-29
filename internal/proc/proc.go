@@ -3,7 +3,10 @@
 // On Windows every child goes into a job object that kills its processes
 // when llamaenv's handle closes, so a hard stop of the shim (the Llama app
 // stops its server that way) also stops every backend. On Linux every child
-// gets its own process group and dies with its parent.
+// gets its own process group and dies with its parent. macOS has no way to
+// make a child die with its parent, so there every child runs under a small
+// watcher, llamaenv's own program, that stops the child's process group when
+// the parent ends.
 package proc
 
 import (
@@ -11,6 +14,14 @@ import (
 	"sync"
 	"time"
 )
+
+// WatchCommand is the first argument that makes llamaenv's program run
+// Watch. Only macOS uses it.
+const WatchCommand = "__llamaenv-watch"
+
+// Watcher is the program that runs Watch: llamaenv's own program, which main
+// sets. When it is empty, children start as plain processes.
+var Watcher string
 
 // Group is a set of child processes.
 type Group struct {

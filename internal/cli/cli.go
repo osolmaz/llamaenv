@@ -343,6 +343,9 @@ func removePreset(c *config.Config, runtime, name string, out io.Writer) error {
 }
 
 func status(d config.Dirs, _ []string, out io.Writer) error {
+	if app := install.AppStatus(d); app != "" {
+		say(out, "%s\n", app)
+	}
 	states := switcher.ReadStates(d.State())
 	if len(states) == 0 {
 		say(out, "no switcher is running\n")

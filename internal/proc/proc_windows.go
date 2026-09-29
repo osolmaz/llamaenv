@@ -79,3 +79,6 @@ func pid32(pid int) uint32 {
 	}
 	return uint32(pid)
 }
+
+// Watch is only needed on macOS.
+func Watch([]string) int { return 2 }

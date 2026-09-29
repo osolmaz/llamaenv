@@ -66,6 +66,10 @@ func (d Dirs) Runtimes() string { return filepath.Join(d.Data, "runtimes") }
 // State holds one folder per running switcher, named after its port.
 func (d Dirs) State() string { return filepath.Join(d.Data, "state") }
 
+// Official holds, on macOS, the official llama that the Llama app ran before
+// llamaenv took its place, and the record of where it came from.
+func (d Dirs) Official() string { return filepath.Join(d.Data, "official") }
+
 // Logs is the folder for logs.
 func (d Dirs) Logs() string { return filepath.Join(d.Data, "logs") }
 
