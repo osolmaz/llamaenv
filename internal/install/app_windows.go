@@ -61,7 +61,7 @@ func restartApp() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return true, startApp(ctx, strings.TrimSpace(string(out)), onDesktop())
+	return true, startApp(ctx, strings.TrimSpace(string(out)), onDesktop(), time.Now())
 }
 
 // onDesktop says whether llamaenv runs in the session that shows the desktop.
@@ -75,8 +75,8 @@ func onDesktop() bool {
 	return own == windows.WTSGetActiveConsoleSessionId()
 }
 
-func startApp(ctx context.Context, family string, desktop bool) error {
-	steps := startCommands(family, desktop)
+func startApp(ctx context.Context, family string, desktop bool, now time.Time) error {
+	steps := startCommands(family, desktop, now)
 	for _, args := range steps {
 		// G204: fixed Windows programs; the family name comes from Get-AppxPackage.
 		if err := exec.CommandContext(ctx, args[0], args[1:]...).Run(); err != nil { //nolint:gosec // see above
@@ -92,18 +92,28 @@ func startApp(ctx context.Context, family string, desktop bool) error {
 // startCommands returns the commands that start the Llama app. On the
 // desktop, Explorer starts it. Elsewhere, a one-time task with an
 // interactive logon starts it in the user's desktop session, without a
-// password; the task is deleted once it has run.
-func startCommands(family string, desktop bool) [][]string {
+// password; the task is deleted once it has run. Its start time has passed
+// already, so a task left behind never runs by itself.
+func startCommands(family string, desktop bool, now time.Time) [][]string {
 	app := `C:\Windows\explorer.exe shell:AppsFolder\` + family + `!App`
 	if desktop {
 		return [][]string{strings.SplitN(app, " ", 2)}
 	}
 	return [][]string{
-		{"schtasks.exe", "/create", "/tn", startTask, "/tr", app, "/sc", "once", "/st", "23:59", "/it", "/f"},
+		{"schtasks.exe", "/create", "/tn", startTask, "/tr", app, "/sc", "once", "/st", pastMinute(now), "/it", "/f"},
 		{"schtasks.exe", "/run", "/tn", startTask},
 		{"powershell", "-NoProfile", "-Command", waitTaskScript},
 		{"schtasks.exe", "/delete", "/tn", startTask, "/f"},
 	}
+}
+
+// pastMinute is a start time today that has passed at now: the minute before,
+// or 00:00 in the first minute of the day.
+func pastMinute(now time.Time) string {
+	if now.Hour() == 0 && now.Minute() == 0 {
+		return "00:00"
+	}
+	return now.Add(-time.Minute).Format("15:04")
 }
 
 // waitTaskScript waits up to 30 seconds for the start task to have run and
