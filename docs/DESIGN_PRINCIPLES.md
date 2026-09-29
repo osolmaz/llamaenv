@@ -161,32 +161,45 @@ overwrite another instance's state.
 
 ### macOS: the Llama app does not use PATH
 
-Checked: `ggml-org/Llama-macOS` 0.42.0, `Llama/Engine/LlamaBinaries.swift`
-and `Llama/Engine/LlamaInstaller.swift`.
+Checked: `ggml-org/Llama-macOS` 0.42.0 (`Llama/Engine/LlamaBinaries.swift`,
+`Llama/Engine/LlamaInstaller.swift`, `Llama/Engine/LlamaInstallManager.swift`),
+`ggml-org/llama-install.sh` (`install.sh`), and Homebrew's `keg.rb` and
+`formula_installer.rb`.
 
 The macOS Llama app runs the first of these files that exists:
-`~/.llama-app/llama` (its own copy, which it keeps at its pinned version),
-`/opt/homebrew/bin/llama`, and `/usr/local/bin/llama`. It never reads PATH, so
-principle 2 cannot reach it.
+`~/.llama-app/llama`, `/opt/homebrew/bin/llama`, and `/usr/local/bin/llama`.
+It never reads PATH, so principle 2 cannot reach it. The first file is where
+both llama.app's `install.sh` and the app itself put the official `llama`, and
+the app keeps it at the version that it pins.
 
 On macOS, llamaenv MAY break principles 2 and 8 in these ways, and only in
 these ways:
 
-- It MAY put one symlink at `/usr/local/bin/llama` that points to its shim.
-  The app treats that path as a manual install and never changes it.
-- It MAY run `brew unlink llama.cpp` at install, so that the app reaches that
-  symlink, and `brew link llama.cpp` at uninstall. It MUST relink only when it
-  unlinked. It MUST NOT edit files in the Homebrew prefix itself.
+- It MAY take the file that the app runs now: move that program into its own
+  `official/` folder, or keep a symlink to where a symlink pointed, and put a
+  symlink to its shim in its place. The kept program is the official `llama`.
+- When that file is Homebrew's, it MAY run `brew unlink <formula>` and put the
+  shim symlink at the next free place in the app's list. The official `llama`
+  is then the formula's `opt` path, which stays in place while unlinked and
+  across upgrades. Homebrew owns the symlinks in its bin folder, so llamaenv
+  MUST NOT write them.
+- It MAY use sudo for these changes in a folder that root owns, such as
+  `/usr/local/bin`.
 
-It MUST NOT write `~/.llama-app/llama` or any other file of the app. The
-official `llama` stays Homebrew's, through `/opt/homebrew/opt/llama.cpp/bin/llama`,
-which stays in place while unlinked and across upgrades.
+It MUST record what it changed in its own folder, and uninstall MUST undo
+exactly that: put the kept program or symlink back, and link the formula again
+only when llamaenv unlinked it and nothing linked it since.
 
-When the app runs any other `llama`, for example after `brew upgrade` links
-llama.cpp again or after the app installs its own copy, llamaenv is off and the
-app runs the standard path. `llamaenv status` MUST report this and name the
-command that turns llamaenv on again. llamaenv MUST NOT watch for it or undo
-it by itself.
+When the app runs another file, for example after the app updates its own
+`llama`, after `install.sh` runs again, or after `brew upgrade` links the
+formula again, llamaenv is off and the app runs the standard path. Uninstall
+then leaves that file as it is. `llamaenv status` MUST report this and name the
+command that turns llamaenv on again. llamaenv MUST NOT watch for it or undo it
+by itself.
+
+When the llamaenv folder is deleted by hand, the shim symlink points nowhere,
+so the app skips it and installs its own official `llama`. The symlink is the
+only leftover.
 
 Remove this exception when the macOS app looks up `llama` on PATH.
 

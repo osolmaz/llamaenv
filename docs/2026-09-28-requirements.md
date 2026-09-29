@@ -134,16 +134,16 @@ does not store the path, and skips a PATH entry whose file does not exist
 
 ## Platforms
 
-Windows and Linux are both supported. Windows comes first, because it is the
+Windows, Linux, and macOS are supported. Windows comes first, because it is the
 first use case.
 
 1. **Windows** x64 and arm64, with the Llama app and with `llama serve`.
 2. **Linux** x64 and arm64, with `llama serve` from llama.app.
-
-3. **macOS** arm64, with the Llama app and with `llama serve` from Homebrew.
-   The app does not use PATH, so llamaenv uses the exception in
+3. **macOS** arm64, with the Llama app and with `llama serve`, for every
+   install method of llama.app: `install.sh`, the app's own download,
+   Homebrew, and a build in `/usr/local/bin`. The app does not use PATH, so
+   llamaenv uses the exception in
    [the design principles](DESIGN_PRINCIPLES.md#macos-the-llama-app-does-not-use-path).
-   Not built yet.
 
 ## Non-goals
 
