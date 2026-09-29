@@ -178,9 +178,15 @@ func (a appSlot) freeAfter(i int) string {
 	return ""
 }
 
+// linkShim puts a symlink to the shim at slot, and creates its folder, such
+// as /usr/local/bin, which a new Mac does not have.
 func (a appSlot) linkShim(slot string) error {
 	if a.isShim(slot) {
 		return nil
+	}
+	dir := filepath.Dir(slot)
+	if err := a.asRoot(func() error { return os.MkdirAll(dir, 0o755) }, "mkdir", "-p", dir); err != nil { //nolint:gosec // a bin folder that everyone reads
+		return err
 	}
 	return a.asRoot(func() error { return os.Symlink(a.shim, slot) }, "ln", "-s", a.shim, slot)
 }
