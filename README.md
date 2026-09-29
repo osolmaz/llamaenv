@@ -69,7 +69,9 @@ itself.
 
 ## Install
 
-Build it with Go 1.26:
+Download the archive for your system from the
+[releases](https://github.com/osolmaz/llamaenv/releases), check it against
+`SHA256SUMS`, and unpack `llamaenv`. Or build it with Go 1.26:
 
 ```sh
 go build -o llamaenv .
