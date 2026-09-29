@@ -48,7 +48,8 @@ Presets (plain llama.cpp presets, used only by that runtime's router):
   preset remove <runtime> <file.ini>
 
 Diagnosis:
-  status                      the running switcher and its routers
+  status                      the running switcher, its routers, and requests in flight
+  logs                        the log folders and the end of each log
   serve [llama serve args]    run the switcher in the foreground
   version
 `
@@ -80,6 +81,7 @@ var setupCommands = map[string]setupCommand{
 	"uninstall": func(d config.Dirs, _ []string, out io.Writer) error { return install.Uninstall(d, logTo(out)) },
 	"serve":     serve,
 	"status":    status,
+	"logs":      showLogs,
 }
 
 var configCommands = map[string]configCommand{
@@ -372,6 +374,27 @@ func printState(out io.Writer, st switcher.State) error {
 			state = b.Error
 		}
 		say(tw, "%s\t%d\t%s\t%s\n", b.Name, b.Port, b.Program, state)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if st.Logs == "" {
+		return nil
+	}
+	say(out, "logs in %s\n", st.Logs)
+	inFlight := switcher.ReadInFlight(st.Logs, st.PID)
+	if len(inFlight) == 0 {
+		return nil
+	}
+	say(out, "\nREQUESTS IN FLIGHT\n")
+	tw = tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	say(tw, "ID\tMODEL\tRUNTIME\tAGE\tSTATE\n")
+	for _, r := range inFlight {
+		state := "running"
+		if r.Stalled {
+			state = "stalled, see the logs"
+		}
+		say(tw, "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Model, r.Runtime, time.Since(r.Since).Round(time.Second), state)
 	}
 	return tw.Flush()
 }

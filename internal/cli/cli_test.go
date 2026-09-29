@@ -274,3 +274,64 @@ func (e *env) read(path string) string {
 	}
 	return string(data)
 }
+
+// writeSwitcher writes the state and the event log of a switcher with PID
+// 42, and returns its log folder.
+func writeSwitcher(t *testing.T, home string, events ...switcher.Event) string {
+	t.Helper()
+	logDir := switcher.LogDir(filepath.Join(home, "logs"), 9931)
+	st := switcher.State{PID: 42, Address: "127.0.0.1:9931", Logs: logDir}
+	data, _ := json.Marshal(st)
+	var lines []string
+	for _, ev := range events {
+		line, _ := json.Marshal(ev)
+		lines = append(lines, string(line))
+	}
+	for path, content := range map[string][]byte{
+		filepath.Join(home, "state", "9931", "switcher.json"): data,
+		filepath.Join(logDir, switcher.EventsFile):            []byte(strings.Join(lines, "\n") + "\n"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return logDir
+}
+
+func TestStatusListsRequestsInFlight(t *testing.T) {
+	e := setup(t)
+	logDir := writeSwitcher(t, e.home,
+		switcher.Event{PID: 42, Kind: "request", ID: 1, Runtime: "prism", Model: "done-model"},
+		switcher.Event{PID: 42, Kind: "done", ID: 1},
+		switcher.Event{PID: 42, Kind: "request", ID: 2, Runtime: "prism", Model: "stuck-model"},
+		switcher.Event{PID: 42, Kind: "stall", ID: 2},
+		switcher.Event{PID: 7, Kind: "request", ID: 3, Model: "other-switcher"},
+	)
+	out := e.ok("status")
+	for _, want := range []string{"logs in " + logDir, "stuck-model", "stalled"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status lacks %q:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"done-model", "other-switcher"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("status lists %s:\n%s", gone, out)
+		}
+	}
+	out = e.ok("logs")
+	for _, want := range []string{logDir, "== events.jsonl ==", "stuck-model"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("logs lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestLogsWithoutLogs(t *testing.T) {
+	e := setup(t)
+	if out := e.ok("logs"); !strings.Contains(out, "no logs in") {
+		t.Errorf("logs: %s", out)
+	}
+}

@@ -119,7 +119,8 @@ usual.
 
 ```sh
 llamaenv list        # which model uses which runtime and preset
-llamaenv status      # the running switchers and their routers
+llamaenv status      # the running switchers, their routers, and requests in flight
+llamaenv logs        # the log folders and the end of each log
 llamaenv versions    # official llama and runtime versions
 llamaenv use <name>  # a different default runtime; "official" goes back
 llamaenv unmap <model>
@@ -127,3 +128,20 @@ llamaenv uninstall   # back to the plain standard setup
 ```
 
 Downloaded model files stay in the Hugging Face cache when you uninstall.
+
+## Diagnostics
+
+Each switcher keeps its diagnostics in llamaenv's `logs/<port>/` folder, in a
+fixed disk budget: each file grows to 8 MB, then moves to `<name>.1`, and each
+start moves the previous run's files there too.
+
+- `<runtime>.log`: the output of each runtime's router and its models.
+- `events.jsonl`: one line per event: switcher start, runtime exit, and each
+  request that runs a model, with its status, bytes, time to first byte,
+  duration, and whether the client went away.
+- `stall-*.txt`: when a model request gets no bytes for a minute, the switcher
+  records the router's state in `events.jsonl` and writes its own stacks here.
+  The three newest stay.
+
+The default router's output goes to the client, as with the official
+`llama serve`. See [the diagnostics design](docs/2026-09-29-diagnostics.md).

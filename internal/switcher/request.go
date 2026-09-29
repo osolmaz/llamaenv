@@ -80,15 +80,7 @@ func (s *Switcher) post(ctx context.Context, url string, body []byte) error {
 }
 
 func (s *Switcher) do(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
-	// G704: the URL is a local router that llamaenv started.
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body)) //nolint:gosec // local router URL, see above
-	if err != nil {
-		return nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := s.client.Do(req) //nolint:gosec // local router URL, see above
+	resp, err := s.send(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -97,4 +89,17 @@ func (s *Switcher) do(ctx context.Context, method, url string, body []byte) (*ht
 		return nil, fmt.Errorf("%s %s: HTTP %s", method, url, resp.Status)
 	}
 	return resp, nil
+}
+
+// send sends a request to a router and returns its answer, whatever the status.
+func (s *Switcher) send(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
+	// G704: the URL is a local router that llamaenv started.
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body)) //nolint:gosec // local router URL, see above
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return s.client.Do(req) //nolint:gosec // local router URL, see above
 }

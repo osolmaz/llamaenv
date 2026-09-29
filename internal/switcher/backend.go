@@ -35,6 +35,7 @@ type backend struct {
 	group  *proc.Group
 	out    io.Writer
 	errOut io.Writer
+	diag   *diag
 	// presets are the runtime's own llama.cpp presets, and combined is
 	// where the switcher writes them together with the client's preset.
 	presets  []string
@@ -77,7 +78,15 @@ func (b *backend) startLocked(ctx context.Context, timeout time.Duration) error 
 		return b.err
 	}
 	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
+	go func() {
+		err := cmd.Wait()
+		close(exited)
+		msg := "exited"
+		if err != nil {
+			msg += ": " + err.Error()
+		}
+		b.diag.add(Event{Kind: "exit", Runtime: b.name, Message: msg})
+	}()
 	base := &url.URL{Scheme: "http", Host: joinHostPort("127.0.0.1", port)}
 	proxy := httputil.NewSingleHostReverseProxy(base)
 	proxy.FlushInterval = -1 // stream every chunk at once
