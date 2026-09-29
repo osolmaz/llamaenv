@@ -87,9 +87,8 @@ func (b *backend) startLocked(ctx context.Context, timeout time.Duration) error 
 	b.port, b.base, b.proxy, b.cmd, b.exited, b.err = port, base, proxy, cmd, exited, nil
 	if err := waitHealthy(ctx, base, exited, timeout); err != nil {
 		b.err = fmt.Errorf("runtime %s: %w", b.name, err)
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		// The whole group: on macOS, cmd is the watcher of the router.
+		proc.Signal(cmd, os.Kill)
 		return b.err
 	}
 	return nil
