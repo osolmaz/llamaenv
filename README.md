@@ -79,19 +79,9 @@ go build -o llamaenv .
 the official `llama` from llama.app when it is missing. It also restarts the
 Llama app, so the app picks up the shim.
 
-The Llama app for macOS does not use PATH. It runs the first of
-`~/.llama-app/llama`, `/opt/homebrew/bin/llama`, and `/usr/local/bin/llama`.
-So on macOS, `llamaenv install` puts the shim in place of the file that the app
-runs, and keeps that official `llama` in llamaenv's folder. This works with
-every way to install llama.app. With Homebrew, it unlinks llama.cpp and puts
-the shim at `/usr/local/bin/llama`, which asks for your password once.
-`llamaenv uninstall` puts everything back. If you delete llamaenv's folders by
-hand instead, run `brew link llama.cpp` afterwards.
-
-An update of the app's `llama`, a new run of `install.sh`, or `brew upgrade`
-puts the official `llama` back in front, and the app then runs without
-llamaenv. `llamaenv status` shows this. Run `llamaenv install` again to turn
-llamaenv back on.
+The Llama app for macOS does not use PATH, so on macOS `llamaenv install`
+takes the place of the `llama` that the app runs, and `llamaenv uninstall`
+puts it back.
 
 ## Set up a model
 
@@ -110,15 +100,14 @@ A preset is a plain llama.cpp preset, the same file that
 
 ```ini
 [prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]
+hf-repo = prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0
 ctx-size = 98304
 parallel = 1
 ```
 
 Only that build's router gets it. Each model gets its own preset file, so
 setting up another model on the same build keeps this one. A context size that
-you set in the Llama app still wins over the preset. The Llama app for macOS
-always sets a context size for each model, so on macOS pick the context in the
-app.
+you set in the Llama app still wins over the preset.
 
 [`examples/bonsai`](examples/bonsai) has complete setup scripts for Windows and
 Linux, and a preset for Bonsai 2 27B.

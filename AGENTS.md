@@ -4,6 +4,7 @@
 - Read [how llama.cpp is configured](docs/2026-09-28-llama-cpp-config.md) before you touch presets or settings.
 - Status: alpha. There are no users to keep compatible. Change config, files, commands, and state in place, and delete what they replace. Do not add migrations, fallback readers, aliases, deprecation paths, or any other backward compatibility.
 - Follow the plan in `docs/`, and update it when a decision changes.
+- Keep the README short and general: what llamaenv does, how to install it, how to set up a model, and the everyday commands. Do not add model-specific notes or edge cases to it. Put them in the example's own files under `examples/`, in the plans and notes in `docs/`, or in the design principles.
 - Before finishing a change, run these, as CI does:
   ```sh
   gofmt -l .                      # must print nothing

@@ -138,6 +138,15 @@ preset, not from code.
 llamaenv MUST NOT add a user interface, a new page, or new behavior in the web
 page or the Llama app. Its commands are for setup and diagnosis.
 
+A diagnosis command, such as `llamaenv doctor`, MAY read and report on any
+file, including the files of llama.cpp, the official `llama`, and the Llama
+app. For a file that llamaenv does not own, it MUST name the file and the
+exact change, and leave the change to the user. It MAY fix llamaenv's own
+files, and only when the user asks for it explicitly, such as with `--fix`. It
+MUST NOT edit another program's files, even when asked: the change would stay
+after uninstall (principle 8), and the program that owns the file may write it
+again.
+
 ### 8. Removable without leftovers
 
 After `llamaenv uninstall`, or after its folder is deleted by hand, the Llama

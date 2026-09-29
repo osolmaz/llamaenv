@@ -48,6 +48,7 @@ option names without the leading dashes, such as `ctx-size`, `parallel`,
 mmap = 1
 
 [prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]
+hf-repo = prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0
 ctx-size = 98304
 parallel = 1
 ```
@@ -136,7 +137,7 @@ The files for Bonsai 2 27B, from [`examples/bonsai`](../examples/bonsai):
 | --- | --- | --- |
 | `runtimes.ini` | llamaenv | `[runtime prism]` with the archive URLs, `models = prism-ml/Ternary-Bonsai-2-27B-gguf`, and `presets = bonsai-2-27b.ini` |
 | `runtimes.lock` | llamaenv | the SHA-256 of each archive, and of a preset that came from a URL |
-| `presets/prism/bonsai-2-27b.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `ctx-size = 98304` and `parallel = 1` |
+| `presets/prism/bonsai-2-27b.ini` | llama.cpp, through llamaenv | `[prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0]` with `hf-repo`, `ctx-size = 98304`, and `parallel = 1` |
 | `state/<port>/prism.preset.ini` | llama.cpp, written by llamaenv | the combined preset, while the switcher runs |
 
 The folder is `%LOCALAPPDATA%\llamaenv\` on Windows. On Linux, config files and

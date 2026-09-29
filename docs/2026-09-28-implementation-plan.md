@@ -202,6 +202,11 @@ data folder.
   the llama.app bucket.
 - `llamaenv use <runtime>`: set the default runtime for unmapped models.
   `llamaenv use official` goes back to the standard build.
+- `llamaenv doctor [--fix]`: check the setup and report each problem with its
+  fix; `--fix` changes only llamaenv's own files. Planned in
+  [the doctor plan](2026-09-29-doctor-and-fit-params-plan.md), which also
+  plans running other commands for a mapped model, such as `fit-params`, on
+  its runtime.
 
 ## 7. Spike before the build
 
