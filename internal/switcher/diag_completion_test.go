@@ -39,7 +39,7 @@ func TestCompletedRequestMustNotGainLateStall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	exited := make(chan struct{})
-	go func() { defer close(exited); s.watchStall(ctx, 1, b, "test-model", tr) }()
+	go func() { defer close(exited); s.watchStall(ctx, 1, b, router.URL, "test-model", tr) }()
 	select {
 	case <-entered:
 	case <-time.After(2 * time.Second):
@@ -104,6 +104,51 @@ func TestCompletionCancelsInProgressProbe(t *testing.T) {
 	if w.Body.String() != "finished" {
 		t.Fatalf("response: %q", w.Body.String())
 	}
+	wantNoStall(t, d.dir)
+}
+
+// A restart may hold b.mu for the full startup timeout. Once its proxy
+// response ends, a request must not wait for that lock through its watcher.
+func TestFinishedRequestMustNotWaitForBackendRestartLock(t *testing.T) {
+	healthStarted := make(chan struct{})
+	healthCanceled := make(chan struct{})
+	finishChat := make(chan struct{})
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			close(healthStarted)
+			<-r.Context().Done()
+			close(healthCanceled)
+		case "/v1/chat/completions":
+			select {
+			case <-finishChat:
+				_, _ = w.Write([]byte("finished"))
+			case <-r.Context().Done():
+			}
+		default:
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	defer router.Close()
+	base, _ := url.Parse(router.URL)
+	d := newDiag(Options{LogDir: t.TempDir(), StallAfter: 20 * time.Millisecond})
+	defer d.close()
+	s := &Switcher{diag: d, client: router.Client()}
+	b := &backend{name: "test-runtime", base: base, proxy: httputil.NewSingleHostReverseProxy(base)}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "http://switcher/v1/chat/completions", nil)
+	finished := make(chan struct{})
+	go func() { defer close(finished); s.serveTracked(httptest.NewRecorder(), r, b, "test-model") }()
+	wantSignal(t, healthStarted, "health probe did not start")
+	b.mu.Lock()
+	defer func() {
+		b.mu.Unlock()
+		wantSignal(t, finished, "handler did not stop after the backend lock was released")
+	}()
+	close(finishChat)
+	wantSignal(t, healthCanceled, "request completion did not cancel the probe")
+	wantSignal(t, finished, "finished request is blocked by the backend restart lock")
 	wantNoStall(t, d.dir)
 }
 
