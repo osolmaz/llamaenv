@@ -1,0 +1,123 @@
+package switcher
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestCompletedRequestMustNotGainLateStall(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			once.Do(func() { close(entered) })
+			<-release
+		}
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer router.Close()
+	defer onceRelease(release)()
+	base, _ := url.Parse(router.URL)
+	d := newDiag(Options{LogDir: t.TempDir(), StallAfter: 20 * time.Millisecond})
+	defer d.close()
+	s := &Switcher{diag: d, client: router.Client()}
+	b := &backend{name: "test-runtime", base: base}
+	tr := &tracked{}
+	tr.last.Store(time.Now().Add(-time.Second).UnixNano())
+	d.add(Event{Kind: "request", ID: 1, Model: "test-model", Runtime: b.name})
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	go func() { defer close(exited); s.watchStall(context.Background(), 1, b, "test-model", tr, done) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stall probe never started")
+	}
+	// Completion must stop a blocked probe even without context cancellation.
+	close(done)
+	d.add(Event{Kind: "done", ID: 1, Model: "test-model", Runtime: b.name})
+	close(release)
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher did not stop")
+	}
+	wantNoStall(t, d.dir)
+}
+
+func onceRelease(ch chan struct{}) func() {
+	return func() {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
+}
+
+func TestCompletionCancelsInProgressProbe(t *testing.T) {
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			close(entered)
+			<-r.Context().Done()
+			close(canceled)
+		case "/v1/chat/completions":
+			select {
+			case <-entered:
+				_, _ = w.Write([]byte("finished"))
+			case <-time.After(2 * time.Second):
+				http.Error(w, "probe never started", 500)
+			}
+		default:
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	defer router.Close()
+	base, _ := url.Parse(router.URL)
+	d := newDiag(Options{LogDir: t.TempDir(), StallAfter: 20 * time.Millisecond})
+	defer d.close()
+	s := &Switcher{diag: d, client: router.Client()}
+	b := &backend{name: "test-runtime", base: base, proxy: httputil.NewSingleHostReverseProxy(base)}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "http://switcher/v1/chat/completions", nil)
+	w := httptest.NewRecorder()
+	finished := make(chan struct{})
+	go func() { defer close(finished); s.serveTracked(w, req, b, "test-model") }()
+	wantSignal(t, finished, "completion waited for the probe timeout")
+	wantSignal(t, canceled, "completion did not cancel the health probe")
+	if w.Body.String() != "finished" {
+		t.Fatalf("response: %q", w.Body.String())
+	}
+	wantNoStall(t, d.dir)
+}
+
+func wantSignal(t *testing.T, ch <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal(message)
+	}
+}
+
+func wantNoStall(t *testing.T, dir string) {
+	t.Helper()
+	if e, ok := findEvent(dir, func(e Event) bool { return e.Kind == "stall" }); ok {
+		t.Fatalf("completed request produced a stall: %+v", e)
+	}
+}

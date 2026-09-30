@@ -197,11 +197,18 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 	d.add(Event{Kind: "request", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path})
 
 	done := make(chan struct{})
-	go s.watchStall(id, b, model, t, done)
+	watcherDone := make(chan struct{})
+	ctx, cancel := context.WithCancel(r.Context())
+	go func() {
+		defer close(watcherDone)
+		s.watchStall(ctx, id, b, model, t, done)
+	}()
 	// When the client goes away mid-response, the proxy panics with
 	// http.ErrAbortHandler, which net/http expects. The request still ends.
 	defer func() {
+		cancel()
 		close(done)
+		<-watcherDone
 		e := Event{Kind: "done", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path,
 			Status: t.status, Bytes: t.bytes.Load(), DurationMS: time.Since(start).Milliseconds(),
 			ClientGone: r.Context().Err() != nil}
@@ -214,12 +221,14 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 }
 
 // watchStall records one stall snapshot when the request goes silent.
-func (s *Switcher) watchStall(id uint64, b *backend, model string, t *tracked, done <-chan struct{}) {
+func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model string, t *tracked, done <-chan struct{}) {
 	tick := time.NewTicker(min(s.diag.stall/4, 5*time.Second))
 	defer tick.Stop()
 	for {
 		select {
 		case <-done:
+			return
+		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
@@ -227,17 +236,25 @@ func (s *Switcher) watchStall(id uint64, b *backend, model string, t *tracked, d
 		if silent < s.diag.stall {
 			continue
 		}
+		probes := s.probe(ctx, b, model)
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		default:
+		}
 		s.diag.add(Event{Kind: "stall", ID: id, Runtime: b.name, Model: model,
 			Message: fmt.Sprintf("no bytes for %s", silent.Round(100*time.Millisecond)),
-			Probes:  s.probe(b, model), Dump: s.diag.dump(id)})
+			Probes:  probes, Dump: s.diag.dump(id)})
 		return
 	}
 }
 
 // probe asks a router about a model, each question with a short timeout, so
 // that a wedged router shows up as timeouts rather than as silence.
-func (s *Switcher) probe(b *backend, model string) map[string]string {
-	out := map[string]string{"health": s.probeGet(b.url("/health"))}
+func (s *Switcher) probe(parent context.Context, b *backend, model string) map[string]string {
+	out := map[string]string{"health": s.probeGet(parent, b.url("/health"))}
 	var list struct {
 		Data []struct {
 			ID     string `json:"id"`
@@ -247,7 +264,7 @@ func (s *Switcher) probe(b *backend, model string) map[string]string {
 			} `json:"status"`
 		} `json:"data"`
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	ctx, cancel := context.WithTimeout(parent, probeTimeout)
 	defer cancel()
 	if err := s.getJSON(ctx, b.url("/models"), &list); err != nil {
 		out["models"] = err.Error()
@@ -258,15 +275,15 @@ func (s *Switcher) probe(b *backend, model string) map[string]string {
 		}
 		out["status"] = m.Status.Value
 		if port := argValue(m.Status.Args, "--port"); port != "" {
-			out["child_port"] = port + " " + portState(port)
+			out["child_port"] = port + " " + portState(parent, port)
 		}
 	}
-	out["slots"] = s.probeGet(b.url("/slots?model=" + model))
+	out["slots"] = s.probeGet(parent, b.url("/slots?model="+model))
 	return out
 }
 
-func (s *Switcher) probeGet(url string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+func (s *Switcher) probeGet(parent context.Context, url string) string {
+	ctx, cancel := context.WithTimeout(parent, probeTimeout)
 	defer cancel()
 	resp, err := s.send(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -280,8 +297,8 @@ func (s *Switcher) probeGet(url string) string {
 	return resp.Status + " " + string(body)
 }
 
-func portState(port string) string {
-	c, err := (&net.Dialer{Timeout: probeTimeout}).Dial("tcp", net.JoinHostPort("127.0.0.1", port))
+func portState(ctx context.Context, port string) string {
+	c, err := (&net.Dialer{Timeout: probeTimeout}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", port))
 	if err != nil {
 		return "closed"
 	}
