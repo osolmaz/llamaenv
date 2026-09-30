@@ -199,6 +199,7 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 	done := make(chan struct{})
 	watcherDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
 	go func() {
 		defer close(watcherDone)
 		s.watchStall(ctx, id, b, model, t, done)
