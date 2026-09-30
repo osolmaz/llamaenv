@@ -196,12 +196,15 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 	t.last.Store(start.UnixNano())
 	d.add(Event{Kind: "request", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path})
 
+	// Capture the router address before the watcher starts. A restart holds
+	// b.mu while waiting for health; cancellation cannot release that lock.
+	base := b.url("")
 	watcherDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go func() {
 		defer close(watcherDone)
-		s.watchStall(ctx, id, b, model, t)
+		s.watchStall(ctx, id, b, base, model, t)
 	}()
 	// When the client goes away mid-response, the proxy panics with
 	// http.ErrAbortHandler, which net/http expects. The request still ends.
@@ -220,7 +223,7 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 }
 
 // watchStall records one stall snapshot when the request goes silent.
-func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model string, t *tracked) {
+func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, base, model string, t *tracked) {
 	tick := time.NewTicker(min(s.diag.stall/4, 5*time.Second))
 	defer tick.Stop()
 	for {
@@ -233,7 +236,7 @@ func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model 
 		if silent < s.diag.stall {
 			continue
 		}
-		probes := s.probe(ctx, b, model)
+		probes := s.probe(ctx, base, model)
 		select {
 		case <-ctx.Done():
 			return
@@ -248,8 +251,8 @@ func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model 
 
 // probe asks a router about a model, each question with a short timeout, so
 // that a wedged router shows up as timeouts rather than as silence.
-func (s *Switcher) probe(parent context.Context, b *backend, model string) map[string]string {
-	out := map[string]string{"health": s.probeGet(parent, b.url("/health"))}
+func (s *Switcher) probe(parent context.Context, base, model string) map[string]string {
+	out := map[string]string{"health": s.probeGet(parent, base+"/health")}
 	var list struct {
 		Data []struct {
 			ID     string `json:"id"`
@@ -261,7 +264,7 @@ func (s *Switcher) probe(parent context.Context, b *backend, model string) map[s
 	}
 	ctx, cancel := context.WithTimeout(parent, probeTimeout)
 	defer cancel()
-	if err := s.getJSON(ctx, b.url("/models"), &list); err != nil {
+	if err := s.getJSON(ctx, base+"/models", &list); err != nil {
 		out["models"] = err.Error()
 	}
 	for _, m := range list.Data {
@@ -273,7 +276,7 @@ func (s *Switcher) probe(parent context.Context, b *backend, model string) map[s
 			out["child_port"] = port + " " + portState(parent, port)
 		}
 	}
-	out["slots"] = s.probeGet(parent, b.url("/slots?model="+model))
+	out["slots"] = s.probeGet(parent, base+"/slots?model="+model)
 	return out
 }
 
