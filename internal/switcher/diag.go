@@ -196,19 +196,17 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 	t.last.Store(start.UnixNano())
 	d.add(Event{Kind: "request", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path})
 
-	done := make(chan struct{})
 	watcherDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go func() {
 		defer close(watcherDone)
-		s.watchStall(ctx, id, b, model, t, done)
+		s.watchStall(ctx, id, b, model, t)
 	}()
 	// When the client goes away mid-response, the proxy panics with
 	// http.ErrAbortHandler, which net/http expects. The request still ends.
 	defer func() {
 		cancel()
-		close(done)
 		<-watcherDone
 		e := Event{Kind: "done", ID: id, Runtime: b.name, Model: model, Path: r.URL.Path,
 			Status: t.status, Bytes: t.bytes.Load(), DurationMS: time.Since(start).Milliseconds(),
@@ -222,13 +220,11 @@ func (s *Switcher) serveTracked(w http.ResponseWriter, r *http.Request, b *backe
 }
 
 // watchStall records one stall snapshot when the request goes silent.
-func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model string, t *tracked, done <-chan struct{}) {
+func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model string, t *tracked) {
 	tick := time.NewTicker(min(s.diag.stall/4, 5*time.Second))
 	defer tick.Stop()
 	for {
 		select {
-		case <-done:
-			return
 		case <-ctx.Done():
 			return
 		case <-tick.C:
@@ -239,8 +235,6 @@ func (s *Switcher) watchStall(ctx context.Context, id uint64, b *backend, model 
 		}
 		probes := s.probe(ctx, b, model)
 		select {
-		case <-done:
-			return
 		case <-ctx.Done():
 			return
 		default:

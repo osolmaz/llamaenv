@@ -36,16 +36,17 @@ func TestCompletedRequestMustNotGainLateStall(t *testing.T) {
 	tr := &tracked{}
 	tr.last.Store(time.Now().Add(-time.Second).UnixNano())
 	d.add(Event{Kind: "request", ID: 1, Model: "test-model", Runtime: b.name})
-	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	exited := make(chan struct{})
-	go func() { defer close(exited); s.watchStall(context.Background(), 1, b, "test-model", tr, done) }()
+	go func() { defer close(exited); s.watchStall(ctx, 1, b, "test-model", tr) }()
 	select {
 	case <-entered:
 	case <-time.After(2 * time.Second):
 		t.Fatal("stall probe never started")
 	}
-	// Completion must stop a blocked probe even without context cancellation.
-	close(done)
+	// Finish the request while its health probe is still blocked.
+	cancel()
 	d.add(Event{Kind: "done", ID: 1, Model: "test-model", Runtime: b.name})
 	close(release)
 	select {
